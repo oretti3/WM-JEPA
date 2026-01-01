@@ -20,13 +20,19 @@ class ObjectiveType(enum.Enum):
 @dataclass
 class ObjectivesConfig:
     objectives: List[ObjectiveType] = field(default_factory=lambda: [])
-    vicreg: VICRegObjectiveConfig = VICRegObjectiveConfig()
-    vicreg_obs: VICRegObjectiveConfig = VICRegObjectiveConfig()
-    vicreg_propio: VICRegObjectiveConfig = VICRegObjectiveConfig()
-    idm: IDMObjectiveConfig = IDMObjectiveConfig()
-    prediction: PredictionObjectiveConfig = PredictionObjectiveConfig()
-    prediction_obs: PredictionObjectiveConfig = PredictionObjectiveConfig()
-    prediction_propio: PredictionObjectiveConfig = PredictionObjectiveConfig()
+    vicreg: VICRegObjectiveConfig = field(default_factory=VICRegObjectiveConfig)
+    vicreg_obs: VICRegObjectiveConfig = field(default_factory=VICRegObjectiveConfig)
+    vicreg_propio: VICRegObjectiveConfig = field(default_factory=VICRegObjectiveConfig)
+    idm: IDMObjectiveConfig = field(default_factory=IDMObjectiveConfig)
+    prediction: PredictionObjectiveConfig = field(
+        default_factory=PredictionObjectiveConfig
+    )
+    prediction_obs: PredictionObjectiveConfig = field(
+        default_factory=PredictionObjectiveConfig
+    )
+    prediction_propio: PredictionObjectiveConfig = field(
+        default_factory=PredictionObjectiveConfig
+    )
 
     def build_objectives_list(
         self,
@@ -62,6 +68,12 @@ class ObjectivesConfig:
             elif objective_type == ObjectiveType.IDM:
                 objectives.append(
                     IDMObjective(self.idm, name_prefix=name_prefix, repr_dim=repr_dim)
+                )
+            elif objective_type == ObjectiveType.Prediction:
+                objectives.append(
+                    PredictionObjective(
+                        self.prediction, name_prefix=name_prefix, repr_dim=repr_dim
+                    )
                 )
             elif objective_type == ObjectiveType.PredictionObs:
                 objectives.append(

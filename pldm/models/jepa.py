@@ -1,4 +1,4 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Optional, NamedTuple
 
 import torch
@@ -14,8 +14,9 @@ from pldm.models.predictors import build_predictor
 
 @dataclass
 class JEPAConfig(ConfigBase):
-    backbone: BackboneConfig = BackboneConfig()
-    predictor: PredictorConfig = PredictorConfig()
+    # 画像エンコーダと予測器（L1用）
+    backbone: BackboneConfig = field(default_factory=BackboneConfig)
+    predictor: PredictorConfig = field(default_factory=PredictorConfig)
 
     action_dim: int = 2
 
@@ -52,6 +53,7 @@ class JEPA(torch.nn.Module):
         self.config = config
         self.use_propio_pos = use_propio_pos
         self.use_propio_vel = use_propio_vel
+        # 画像/状態を表現に変換するバックボーン
         self.backbone = build_backbone(
             config.backbone,
             input_dim=input_dim,
@@ -65,6 +67,7 @@ class JEPA(torch.nn.Module):
         else:
             self.repr_dim = self.spatial_repr_dim
 
+        # EMAバックボーン（自己教師信号用）、ターゲットエンコーダー
         if self.config.momentum > 0:
             self.backbone_ema, _ = build_backbone(
                 config.backbone,
@@ -76,6 +79,7 @@ class JEPA(torch.nn.Module):
         else:
             self.backbone_ema = None
 
+        # L2用途ではposteriorの入力次元を調整
         if l2:
             if config.predictor.posterior_input_type == "term_states":
                 config.predictor.posterior_input_dim = self.repr_dim * 2
@@ -84,6 +88,7 @@ class JEPA(torch.nn.Module):
             else:
                 raise NotImplementedError
 
+        # アクションか潜在zのどちらかのみを使う前提
         # right now we don't support hybrid true action + latent action
         assert (self.config.action_dim or self.config.predictor.z_dim) and not (
             self.config.action_dim and self.config.predictor.z_dim
@@ -91,11 +96,13 @@ class JEPA(torch.nn.Module):
 
         predictor_input_dim = self.config.action_dim + self.config.predictor.z_dim
 
+        # 予測器のRNN状態は表現次元に合わせる
         self.config.predictor.rnn_state_dim = self.repr_dim
 
         # predictor.tie_backbone_ln ==> backbone.final_ln
         assert not config.predictor.tie_backbone_ln or config.backbone.final_ln
 
+        # 予測器（RSSM/RNNなど）を構築
         self.predictor = build_predictor(
             config.predictor,
             repr_dim=self.backbone.output_dim,
@@ -132,11 +139,13 @@ class JEPA(torch.nn.Module):
             or goal is not None
         )
 
+        # 画像入力ならバックボーンで表現化
         if repr_input:
             current_state = input_states
         else:
             current_state = self.backbone.forward_multiple(input_states).encodings
 
+        # 予測ステップ数を決める
         if T is None:
             if actions is not None:
                 T = actions.shape[0]
@@ -145,6 +154,7 @@ class JEPA(torch.nn.Module):
             else:
                 raise ValueError("T is None but actions and latents are None")
 
+        # priorロールアウト
         pred_output = self.predictor.forward_multiple(
             current_state.unsqueeze(0),
             actions,
@@ -177,6 +187,7 @@ class JEPA(torch.nn.Module):
         actions:
             (T-1)xBxA
         """
+        # 入力が表現か画像かで処理を分岐
         if input_states.shape[-1] != self.repr_dim:
             if self.config.backbone.propio_dim is not None:
                 if propio_pos.numel() == 0:
@@ -197,6 +208,7 @@ class JEPA(torch.nn.Module):
         else:
             state_encs = input_states  # might be problematic for l2
 
+        # EMAバックボーンのエンコード（推定用）
         if self.config.momentum > 0:
             if self.config.backbone.propio_dim is not None:
                 if propio_pos.numel() == 0:
@@ -215,6 +227,7 @@ class JEPA(torch.nn.Module):
         else:
             ema_backbone_output = None
 
+        # エンコードのみの場合はここで返す
         if self.config.encode_only or encode_only:
             return ForwardResult(
                 backbone_output=backbone_output,
@@ -225,6 +238,7 @@ class JEPA(torch.nn.Module):
 
         T = input_states.shape[0] - 1
 
+        # posteriorを計算して予測器を回す
         pred_output = self.predictor.forward_multiple(
             state_encs, actions, T, compute_posterior=True
         )
@@ -237,6 +251,7 @@ class JEPA(torch.nn.Module):
         )
 
     def update_ema(self):
+        # EMAバックボーンの指数移動平均更新
         if self.config.momentum > 0:
             for param, ema_param in zip(
                 self.backbone.parameters(), self.backbone_ema.parameters()

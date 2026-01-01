@@ -106,7 +106,8 @@ class NormalizedDataLoader:
 def make_dataloader(ds, loader_config, normalizer=None, suffix="", train=True):
     config = ds.config
 
-    print(f"{len(ds)} samples in {suffix} dataset")
+    if getattr(loader_config, "verbose", True):
+        print(f"{len(ds)} samples in {suffix} dataset")
 
     loader = torch.utils.data.DataLoader(
         ds,

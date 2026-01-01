@@ -12,9 +12,6 @@ from pldm_envs.wall.data.border_passing_test import BorderPassingTestDataset
 from pldm.data.utils import make_dataloader, make_dataloader_for_prebatched_ds
 
 
-# if "AMD" not in torch.cuda.get_device_name(0):
-from pldm_envs.diverse_maze.d4rl import D4RLDataset
-
 from pldm.probing.evaluator import ProbingConfig
 from pldm_envs.utils.normalizer import Normalizer
 from pldm.data.enums import DataConfig, DatasetType, ProbingDatasets, Datasets
@@ -165,6 +162,9 @@ class DatasetFactory:
         return datasets
 
     def _create_d4rl_datasets(self):
+        # Local import to avoid requiring d4rl/zarr dependencies when unused.
+        from pldm_envs.diverse_maze.d4rl import D4RLDataset
+
         ds = D4RLDataset(self.config.d4rl_config)
         ds = make_dataloader(ds=ds, loader_config=self.config)
 

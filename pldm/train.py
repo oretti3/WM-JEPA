@@ -6,7 +6,7 @@ warnings.filterwarnings("ignore", message="Ill-formed record")
 from typing import Optional
 import os
 import shutil
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 import dataclasses
 import random
 import time
@@ -46,6 +46,7 @@ def seed_everything(seed):
     random.seed(seed)
 
 
+# 学習全体の設定（YAML/CLIから上書き可能）
 @dataclass
 class TrainConfig(ConfigBase):
     env_name: str = MISSING
@@ -60,6 +61,7 @@ class TrainConfig(ConfigBase):
     output_dir: Optional[str] = None
     eval_mpcs: int = 20
     quick_debug: bool = False
+    verbose: bool = True
     seed: int = 42
     load_checkpoint_path: Optional[str] = None
     load_l1_only: bool = False
@@ -71,9 +73,10 @@ class TrainConfig(ConfigBase):
     optimizer_type: OptimizerType = OptimizerType.LARS
     optimizer_schedule: LRSchedule = LRSchedule.Cosine
 
-    data: DataConfig = DataConfig()
+    data: DataConfig = field(default_factory=DataConfig)
 
-    objectives_l1: ObjectivesConfig = ObjectivesConfig()
+    objectives_l1: ObjectivesConfig = field(default_factory=ObjectivesConfig)
+    objectives_l2: ObjectivesConfig = field(default_factory=ObjectivesConfig)
 
     eval_at_beginning: bool = False
     eval_during_training: bool = False
@@ -81,18 +84,19 @@ class TrainConfig(ConfigBase):
     save_every_n_epochs: int = 5
     eval_every_n_epochs: int = 20
 
-    hjepa: HJEPAConfig = HJEPAConfig()
+    hjepa: HJEPAConfig = field(default_factory=HJEPAConfig)
 
     resume_if_possible: bool = True
     compile_model: bool = True
 
-    eval_cfg: EvalConfig = EvalConfig()
+    eval_cfg: EvalConfig = field(default_factory=EvalConfig)
 
     def __post_init__(self):
+        # quick_debug時は設定を軽量化
         if self.quick_debug:
             self.data.quick_debug = True
 
-            # Wall stuff
+            # Wall関連の軽量化
             self.data.dot_config.size = self.data.dot_config.batch_size
             self.data.wall_config.size = self.data.wall_config.batch_size
             self.eval_cfg.wall_planning.n_envs = 7
@@ -100,7 +104,7 @@ class TrainConfig(ConfigBase):
             self.eval_cfg.wall_planning.level1.sgd.n_iters = 2
             self.data.offline_wall_config.lazy_load = True
 
-            # D4RL stuff
+            # D4RL関連の軽量化
             self.data.d4rl_config.quick_debug = True
             self.data.d4rl_config.num_workers = 1
             self.eval_cfg.d4rl_planning.n_envs = 5
@@ -109,13 +113,13 @@ class TrainConfig(ConfigBase):
             self.eval_cfg.d4rl_planning.n_steps = 6
             self.eval_cfg.d4rl_planning.plot_every = 1
 
-        # Wall stuff
+        # Wall関連の設定を同期
         self.eval_cfg.wall_planning.fix_wall = self.data.wall_config.fix_wall
         self.data.dot_config.n_steps = self.n_steps
         self.data.wall_config.n_steps = self.n_steps
         self.eval_cfg.wall_planning.padding = self.data.wall_config.border_wall_loc
 
-        # D4RL stuff
+        # D4RL関連の設定を同期
         if self.hjepa.level1.backbone.arch in ["resnet18", "menet5"]:
             self.eval_cfg.d4rl_planning.image_obs = True
         # assert (
@@ -126,33 +130,46 @@ class TrainConfig(ConfigBase):
         self.eval_cfg.d4rl_planning.stack_states = self.data.d4rl_config.stack_states
         self.eval_cfg.d4rl_planning.img_size = self.data.d4rl_config.img_size
 
-        # general
+        # 共通設定
         self.val_n_steps = self.n_steps
         self.eval_cfg.eval_l2 = not self.hjepa.disable_l2
 
+        # 出力パスと実行グループを確定
         self.output_path = os.path.join(
             self.output_root.rstrip("/"), self.output_dir.lstrip("/")
         )
         self.run_group = self.output_dir
 
+        # 学習のみモードでは評価系を無効化
         if self.train_only:
             self.eval_cfg.eval_l1 = False
             self.eval_cfg.probe_preds = False
             self.eval_cfg.probe_encoder = False
             self.eval_cfg.disable_planning = True
 
+        # テスト出力の掃除
         if "test" in self.output_dir:
             test_dir = os.path.join(self.output_root.rstrip("/"), "test")
             if os.path.exists(test_dir):
                 shutil.rmtree(test_dir)
 
+        # 目的関数のアクション次元を合わせる
         self.objectives_l1.idm.action_dim = self.hjepa.level1.action_dim
+        if not self.hjepa.disable_l2 and self.hjepa.l2_use_actions:
+            self.objectives_l2.idm.action_dim = (
+                self.hjepa.level1.action_dim * self.hjepa.step_skip
+            )
 
 
 class Trainer:
+    def _print(self, *args, force=False, **kwargs):
+        if self.config.verbose or force:
+            print(*args, **kwargs)
+
     def __init__(self, config: TrainConfig):
         self.config = config
 
+        # ロガー初期化（W&B/JSON）
         Logger.run().initialize(
             output_path=self.config.output_path,
             wandb_enabled=self.config.wandb,
@@ -162,13 +179,14 @@ class Trainer:
             config=dataclasses.asdict(config),
         )
 
+        # 乱数固定
         seed_everything(config.seed)
 
         self.sample_step = 0
         self.epoch = 0
         self.step = 0
 
-        # create data
+        # データセット構築
         datasets = DatasetFactory(
             config.data,
             probing_cfg=config.eval_cfg.probing,
@@ -180,14 +198,14 @@ class Trainer:
         self.ds = datasets.ds
         self.val_ds = datasets.val_ds
 
-        # infer obs shape
+        # 入力次元をサンプルから推定
         sample_data = next(iter(self.ds))
         input_dim = sample_data.states.shape[2:]
-        print("Inferred input_dim:", input_dim)
+        self._print("Inferred input_dim:", input_dim)
         if len(input_dim) == 1:
             input_dim = input_dim[0]
 
-        # check if proprioceptive states are used
+        # プロプリオ情報の有無を確認
         use_propio_pos = (
             hasattr(sample_data, "propio_pos")
             and sample_data.propio_pos is not None
@@ -199,7 +217,7 @@ class Trainer:
             and bool(sample_data.propio_vel.shape[-1])
         )
 
-        # create model
+        # モデル構築
         self.model = HJEPA(
             config.hjepa,
             input_dim=input_dim,
@@ -210,12 +228,16 @@ class Trainer:
 
         self.model = self.model.cuda()
 
-        # create objectives
+        # 目的関数の構築
         self.objectives_l1 = self.config.objectives_l1.build_objectives_list(
             name_prefix="l1", repr_dim=self.model.level1.spatial_repr_dim
         )
-        # other stuff...
-
+        self.objectives_l2 = []
+        if not self.config.hjepa.disable_l2:
+            self.objectives_l2 = self.config.objectives_l2.build_objectives_list(
+                name_prefix="l2", repr_dim=self.model.l2_repr_dim
+            )
+        # 事前学習モデルの読み込み
         load_result = self.maybe_load_model()
 
         if (
@@ -223,35 +245,39 @@ class Trainer:
             and not config.eval_cfg.probing.full_finetune
             and not load_result
         ):
-            print("WARN: probing a random network. Is that intentional?")
+            self._print(
+                "WARN: probing a random network. Is that intentional?", force=True
+            )
 
         assert not (self.config.hjepa.train_l1 and self.config.hjepa.freeze_l1)
 
+        # L1を凍結する場合は勾配停止
         if self.config.hjepa.freeze_l1:
-            print("freezing first level weights")
+            self._print("freezing first level weights")
             for m in self.model.level1.modules():
                 for p in m.parameters():
                     p.requires_grad = False
 
-        print(self.model)
+        self._print(self.model)
+        # パラメータ数の集計
         self.n_parameters = sum(
             p.numel() for p in self.model.parameters() if p.requires_grad
         )
-        print("number of params:", self.n_parameters)
+        self._print("number of params:", self.n_parameters)
 
         l1_predictor_n_parameters = sum(
             p.numel()
             for p in self.model.level1.predictor.parameters()
             if p.requires_grad
         )
-        print("number of l1 predictor params:", l1_predictor_n_parameters)
+        self._print("number of l1 predictor params:", l1_predictor_n_parameters)
 
         l1_backbone_n_parameters = sum(
             p.numel()
             for p in self.model.level1.backbone.parameters()
             if p.requires_grad
         )
-        print("number of l1 backbone params:", l1_backbone_n_parameters)
+        self._print("number of l1 backbone params:", l1_backbone_n_parameters)
 
         Logger.run().log_summary(
             {
@@ -261,11 +287,12 @@ class Trainer:
 
         self.metric_tracker = MetricTracker(window_size=100)
 
+        # torch.compileで事前コンパイル
         if self.config.compile_model:
-            print("compiling model")
+            self._print("compiling model")
             c_time = time.time()
             self.model = torch.compile(self.model)
-            print(f"compilation finished after {time.time() - c_time:.3f}s")
+            self._print(f"compilation finished after {time.time() - c_time:.3f}s")
 
     def maybe_resume(self):
         if not os.path.exists(self.config.output_path):
@@ -273,14 +300,14 @@ class Trainer:
         latest_checkpoint = utils.pick_latest_model(self.config.output_path)
         if latest_checkpoint is None:
             return False
-        print("resuming from", latest_checkpoint)
+        self._print("resuming from", latest_checkpoint, force=True)
         checkpoint = torch.load(latest_checkpoint)
         self.model.load_state_dict(checkpoint["model_state_dict"])
         self.optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
         self.epoch = checkpoint["epoch"]
         self.step = checkpoint["step"]
         self.sample_step = checkpoint["sample_step"]
-        print("resumed from epoch", self.epoch, "step", self.step)
+        self._print("resumed from epoch", self.epoch, "step", self.step, force=True)
 
     def maybe_load_model(self):
         if self.config.load_checkpoint_path is not None:
@@ -307,21 +334,29 @@ class Trainer:
             assert (
                 len(res.unexpected_keys) == 0
             ), f"Unexpected keys when loading weights: {res.unexpected_keys}"
-            print(f"loaded model from {self.config.load_checkpoint_path}")
+            self._print(
+                f"loaded model from {self.config.load_checkpoint_path}", force=True
+            )
             return True
         return False
 
     def train(self):
+        # オプティマイザ設定
         self.optimizer = OptimizerFactory(
             model=self.model,
             optimizer_type=self.config.optimizer_type,
             base_lr=self.config.base_lr,
         ).create_optimizer()
 
+        self._print(
+            f"starting training for {self.config.epochs} epochs", force=True
+        )
+
         if self.config.resume_if_possible:
             if self.maybe_resume():
-                print("resuming training")
+                self._print("resuming training", force=True)
 
+        # LRスケジューラ
         scheduler = Scheduler(
             schedule=self.config.optimizer_schedule,
             base_lr=self.config.base_lr,
@@ -332,9 +367,11 @@ class Trainer:
 
         first_step = None
 
+        # 学習前評価
         if self.config.eval_at_beginning and not self.config.quick_debug:
             self.validate()
 
+        # メイン学習ループ
         for epoch in tqdm(range(self.epoch, self.config.epochs + 1), desc="Epoch"):
             self.epoch = epoch
             end_time = time.time()
@@ -370,6 +407,7 @@ class Trainer:
 
                 optional_fields = get_optional_fields(batch, device=s.device)
 
+                # forward + loss + backward
                 forward_result = self.model.forward_posterior(s, a, **optional_fields)
 
                 loss_infos = []
@@ -378,6 +416,11 @@ class Trainer:
                     loss_infos += [
                         objective(batch, [forward_result.level1])
                         for objective in self.objectives_l1
+                    ]
+                if not self.config.hjepa.disable_l2 and self.objectives_l2:
+                    loss_infos += [
+                        objective(batch, [forward_result.level2])
+                        for objective in self.objectives_l2
                     ]
 
                 total_loss = sum([loss_info.total_loss for loss_info in loss_infos])
@@ -393,6 +436,7 @@ class Trainer:
                 self.metric_tracker.update("train_time", train_time)
                 self.metric_tracker.update("data_time", data_time)
 
+                # ログは一定間隔で出力
                 if self.config.quick_debug or (step % 100 == 0):
                     metric_log = self.metric_tracker.build_log_dict()
                     pbar.set_description(
@@ -430,6 +474,7 @@ class Trainer:
                 self.metric_tracker.update("log_time", time.time() - log_start_time)
                 end_time = time.time()
 
+            # 定期保存と評価
             if (
                 self.epoch % self.config.save_every_n_epochs == 0 and self.epoch > 0
             ) or self.epoch >= self.config.epochs:
@@ -443,6 +488,7 @@ class Trainer:
 
     @torch.no_grad()
     def eval_on_objectives(self):
+        # 検証データで学習目的の損失を評価
         if self.val_ds is None:
             return
 
@@ -463,6 +509,11 @@ class Trainer:
                 loss_infos += [
                     objective(batch, [forward_result.level1])
                     for objective in self.objectives_l1
+                ]
+            if not self.config.hjepa.disable_l2 and self.objectives_l2:
+                loss_infos += [
+                    objective(batch, [forward_result.level2])
+                    for objective in self.objectives_l2
                 ]
 
             for loss_info in loss_infos:
@@ -492,8 +543,11 @@ class Trainer:
         Logger.run().commit()
 
     def validate(self):
+        # プロービング/プランニングの評価を実行
         training = self.model.training
         self.model.eval()
+
+        self._print(f"evaluating epoch {self.epoch}", force=True)
 
         # evals on the same objectives used for training
         self.eval_on_objectives()
@@ -532,6 +586,7 @@ class Trainer:
         return
 
     def save_model(self):
+        # チェックポイント保存
         if self.config.output_path is not None:
             os.makedirs(self.config.output_path, exist_ok=True)
             torch.save(
@@ -548,6 +603,8 @@ class Trainer:
                 ),
             )
 
+
+# エントリーポイント
 
 def main(config: TrainConfig):
     torch.set_num_threads(1)

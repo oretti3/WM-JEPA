@@ -1,10 +1,16 @@
 import torch
 import time
+from typing import Optional
+from pathlib import Path
+
+import imageio
+import numpy as np
 
 from pldm_envs.utils.normalizer import Normalizer
 from pldm_envs.wall.data.wall import WallDatasetConfig
 from pldm_envs.wall.evaluation.create_envs import construct_eval_envs
 
+from pldm.logger import Logger
 from pldm.utils import format_seconds
 from .utils import *
 from pldm.models.jepa import JEPA
@@ -75,7 +81,73 @@ class WallMPCEvaluator(MPCEvaluator):
                 xy_action=self.wall_config.action_param_xy,
             )
 
+        self._save_last_episode_gif(mpc_data)
+
         return mpc_data, report
+
+    def _render_obs_frame(
+        self,
+        obs: torch.Tensor,
+        target_obs: Optional[torch.Tensor] = None,
+    ) -> np.ndarray:
+        if obs.dim() == 3:
+            img = -1 * obs.sum(dim=0)
+        elif obs.dim() == 2:
+            img = obs
+        else:
+            img = obs.squeeze()
+
+        img = img - img.min()
+        max_val = img.max()
+        if max_val > 0:
+            img = img / max_val
+        img = (img * 255).clamp(0, 255).to(torch.uint8).cpu().numpy()
+        if img.ndim == 2:
+            img = np.repeat(img[:, :, None], 3, axis=2)
+
+        if target_obs is None:
+            return img
+
+        target = target_obs
+        if not isinstance(target, torch.Tensor):
+            target = torch.from_numpy(target)
+        if target.dim() == 3:
+            target = target[0]
+        else:
+            target = target.squeeze()
+        target = target.detach().float().cpu()
+        target_max = float(target.max())
+        if target_max <= 0:
+            return img
+
+        mask = (target > (0.4 * target_max)).numpy()
+        img[mask] = np.array([255, 0, 0], dtype=np.uint8)
+        return img
+
+    def _save_last_episode_gif(self, mpc_data: PooledMPCResult, fps: int = 10):
+        logger = Logger.run()
+        if logger.output_path is None:
+            return
+
+        last_idx = mpc_data.observations[0].shape[0] - 1
+        try:
+            target_obs = self.envs[-1].get_target_obs()
+            if isinstance(target_obs, np.ndarray):
+                target_obs = torch.from_numpy(target_obs)
+            if self.normalizer is not None:
+                target_obs = self.normalizer.unnormalize_state(target_obs)
+        except Exception:
+            target_obs = None
+
+        frames = []
+        for obs in mpc_data.observations:
+            obs_frame = self._render_obs_frame(obs[last_idx], target_obs=target_obs)
+            frames.append(obs_frame)
+
+        output_dir = Path(logger.output_path) / "media"
+        output_dir.mkdir(parents=True, exist_ok=True)
+        gif_path = output_dir / f"{self.prefix}last_episode.gif"
+        imageio.mimsave(gif_path, frames, fps=fps)
 
     def _construct_report(self, data: PooledMPCResult, elapsed_time: float = 0):
         """

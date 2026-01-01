@@ -1,5 +1,5 @@
 from typing import NamedTuple, List, Any, Optional, Dict
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 import itertools
 import os
 
@@ -34,9 +34,9 @@ class ProbeTargetConfig(ConfigBase):
 class ProbingConfig(ConfigBase):
     probe_targets: str = "locations"
     l2_probe_targets: str = "locations"
-    locations: ProbeTargetConfig = ProbeTargetConfig()
-    propio_pos: ProbeTargetConfig = ProbeTargetConfig()
-    propio_vel: ProbeTargetConfig = ProbeTargetConfig()
+    locations: ProbeTargetConfig = field(default_factory=ProbeTargetConfig)
+    propio_pos: ProbeTargetConfig = field(default_factory=ProbeTargetConfig)
+    propio_vel: ProbeTargetConfig = field(default_factory=ProbeTargetConfig)
     full_finetune: bool = False
     lr: float = 1e-3
     epochs: int = 3
@@ -267,8 +267,27 @@ class ProbingEvaluator:
             batch_size=batch_size,
         )
 
+        total_steps = None
+        if batch_steps is not None:
+            try:
+                total_steps = min(batch_steps, len(dataset))
+            except TypeError:
+                total_steps = batch_steps
+        else:
+            try:
+                total_steps = len(dataset)
+            except TypeError:
+                total_steps = None
+
         for epoch in tqdm(range(epochs), desc=f"Probe {level} prediction epochs"):
-            for batch in tqdm(dataset, desc="Probe prediction step"):
+            for batch in tqdm(
+                dataset,
+                desc="Probe prediction step",
+                total=total_steps,
+                leave=False,
+                mininterval=5.0,
+                dynamic_ncols=True,
+            ):
                 # put time first
                 states = batch.states.cuda().transpose(0, 1)
                 actions = batch.actions.cuda().transpose(0, 1)

@@ -602,18 +602,25 @@ class RSSMPredictor(torch.nn.Module):
         super().__init__()
         self.rnn_state_dim = rnn_state_dim
         self.z_dim = z_dim
-        self.input_dim = z_dim + action_dim
         self.action_dim = action_dim
+        self.use_action_only = use_action_only
+        if self.use_action_only and self.action_dim <= 0:
+            raise ValueError("use_action_only=True requires action_dim > 0")
+        if self.use_action_only:
+            self.input_dim = self.action_dim
+        else:
+            self.input_dim = self.z_dim + self.action_dim
         self.prior_mu_net = nn.Linear(self.rnn_state_dim, self.z_dim)
         self.prior_var_net = nn.Linear(self.rnn_state_dim, self.z_dim)
         self.rnn = torch.nn.GRUCell(self.input_dim, self.rnn_state_dim)
         self.min_var = min_var
-        self.use_action_only = use_action_only
 
     def forward(self, sampled_prior, action, rnn_state):
-        if action is not None and self.use_action_only:
+        if self.use_action_only:
+            if action is None:
+                raise ValueError("action is required when use_action_only=True")
             rnn_input = action  # torch.cat([sampled_prior, action], dim=-1)
-        elif action is not None and not self.use_action_only:
+        elif action is not None:
             rnn_input = torch.cat([sampled_prior, action], dim=-1)
         else:
             rnn_input = sampled_prior

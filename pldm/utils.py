@@ -17,7 +17,7 @@ def seed_everything(seed):
 def pick_latest_model(path):
     # Finds the model in path with the largeest epoch value
     paths = list(Path(path).glob("epoch=*.ckpt"))
-    rx = re.compile(".*epoch=(?P<epoch>\d+).*")
+    rx = re.compile(r".*epoch=(?P<epoch>\d+).*")
     max_epoch = 0
     max_p = None
     for p in paths:

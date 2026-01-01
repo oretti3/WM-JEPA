@@ -18,6 +18,7 @@ class OfflineWallDatasetConfig:
     lazy_load: bool = False
     n_steps: Optional[int] = None
     chunked_actions: bool = False
+    verbose: bool = True
 
 
 def load_np(offline_data_path, lazy_load=False):
@@ -95,10 +96,11 @@ class OfflineWallDataset:
         )
         self.slices_per_traj = self.data_ep_length - self.ep_length + 1
 
-        print(f"Loaded offline data with {len(self)} samples")
-        print(f"Data episode length: {self.ep_length}")
-        print(f"Episode length: {self.ep_length}")
-        print(f"Slices per traj: {self.slices_per_traj}")
+        if self.config.verbose:
+            print(f"Loaded offline data with {len(self)} samples")
+            print(f"Data episode length: {self.ep_length}")
+            print(f"Episode length: {self.ep_length}")
+            print(f"Slices per traj: {self.slices_per_traj}")
 
     def __len__(self):
         return len(self.states) * self.slices_per_traj
