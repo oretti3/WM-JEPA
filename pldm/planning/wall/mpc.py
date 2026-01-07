@@ -44,12 +44,25 @@ class WallMPCEvaluator(MPCEvaluator):
         self.wall_config = wall_config
         self.cross_wall = cross_wall
 
+        start_ends = None
+        if config.set_start_target_path:
+            data = np.load(config.set_start_target_path, allow_pickle=True)
+            if "trials" in data:
+                start_ends = data["trials"]
+            elif "start_ends" in data:
+                start_ends = data["start_ends"]
+            else:
+                raise ValueError(
+                    f"Unknown start/target format in {config.set_start_target_path}"
+                )
+
         self.envs = construct_eval_envs(
             seed=config.seed,
             wall_config=self.wall_config,
             n_envs=config.n_envs,
             level=config.level,
             cross_wall=self.cross_wall,
+            start_ends=start_ends,
             normalizer=self.normalizer,
         )
 

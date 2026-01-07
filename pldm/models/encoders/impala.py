@@ -85,6 +85,7 @@ class ImpalaEncoder(SequenceBackbone):
         mlp_hidden_dims=(512,),
         layer_norm=False,
         input_channels=2,
+        output_dim=512,
         final_ln=False,
     ):
         super(ImpalaEncoder, self).__init__()
@@ -108,10 +109,10 @@ class ImpalaEncoder(SequenceBackbone):
         )
 
         self.dropout = nn.Dropout(p=dropout_rate) if dropout_rate else nn.Identity()
-        self.mlp = nn.Linear(2592, 512)
+        self.mlp = nn.Linear(2592, output_dim)
 
         if final_ln:
-            self.final_ln = nn.LayerNorm(512)
+            self.final_ln = nn.LayerNorm(output_dim)
         else:
             self.final_ln = nn.Identity()
 

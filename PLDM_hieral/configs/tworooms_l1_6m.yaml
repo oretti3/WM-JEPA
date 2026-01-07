@@ -64,18 +64,8 @@ eval_every_n_epochs: 30
 hjepa:
   train_l1: true
   freeze_l1: false
-  disable_l2: false
+  disable_l2: true
   l1_n_steps: *n_steps
-  l2_z_dim: 32
-  l2_min_var: 0.1
-  l2_use_action_only: false
-  l2_posterior_arch: "512-512"
-  l2_decoder_arch: "512-512"
-  l2_use_actions: true
-  l2_action_agg: concat
-  l2_condition_l1: false
-  l2_subgoal: true
-  l2_subgoal_coeff: 1.0
   level1:
     backbone:
       arch: impala
@@ -87,6 +77,7 @@ hjepa:
       backbone_width_factor: 2
       channels: 2
       input_dim: null
+      fc_output_dim: 1024
       final_ln: true
     predictor:
       predictor_arch: rnnV2
@@ -126,16 +117,8 @@ objectives_l1:
     arch: "512"
     arch_subclass: a
     use_pred: false
-objectives_l2:
-  objectives:
-  - Prediction
-  - RSSMKL
-  prediction:
-    global_coeff: 1.0
-  rssm_kl:
-    coeff: 1.0
 optimizer_type: Adam
-output_dir: tworooms_l2
+output_dir: tworooms_l1_6m
 output_root: PLDM_hieral/outputs
 eval_cfg:
   env_name: *env_name
@@ -197,7 +180,7 @@ eval_cfg:
     sample_timesteps: 30
 quick_debug: false
 verbose: false
-run_name: tworooms_l2
+run_name: tworooms_l1_6m
 run_project: HJEPA-tworooms
 seed: 101
 wandb: false

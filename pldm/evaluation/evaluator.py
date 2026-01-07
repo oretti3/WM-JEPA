@@ -157,13 +157,20 @@ class Evaluator:
             plot_every=plot_every,
         )
 
+        l1_model = self.model.level1
+        if (
+            getattr(self.model, "level1_conditioned", None) is not None
+            and getattr(self.model.config, "l2_condition_l1", False)
+        ):
+            l1_model = self.model.level1_conditioned
+
         if "diverse" in self.config.env_name or "maze2d" in self.config.env_name:
             from pldm.planning.d4rl.mpc import MazeMPCEvaluator
 
             planning_evaluator = MazeMPCEvaluator(
                 config=mpc_config,
                 normalizer=self.normalizer,
-                jepa=self.model.level1,
+                jepa=l1_model,
                 pixel_mapper=self.pixel_mapper,
                 prober=self.probers["locations"],
                 prefix=f"d4rl_{level}",
@@ -173,7 +180,7 @@ class Evaluator:
             planning_evaluator = WallMPCEvaluator(
                 config=mpc_config,
                 normalizer=self.normalizer,
-                jepa=self.model.level1,
+                jepa=l1_model,
                 prober=self.probers["locations"],
                 prefix=f"wall_{level}",
                 quick_debug=self.quick_debug,

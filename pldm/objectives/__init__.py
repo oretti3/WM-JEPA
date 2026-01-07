@@ -5,6 +5,7 @@ from typing import List
 from pldm.objectives.vicreg import VICRegObjective, VICRegObjectiveConfig  # noqa
 from pldm.objectives.idm import IDMObjective, IDMObjectiveConfig  # noqa
 from pldm.objectives.prediction import PredictionObjective, PredictionObjectiveConfig
+from pldm.objectives.rssm_kl import RSSMKLObjective, RSSMKLObjectiveConfig
 
 
 class ObjectiveType(enum.Enum):
@@ -15,6 +16,7 @@ class ObjectiveType(enum.Enum):
     Prediction = enum.auto()
     PredictionObs = enum.auto()
     PredictionPropio = enum.auto()
+    RSSMKL = enum.auto()
 
 
 @dataclass
@@ -33,6 +35,7 @@ class ObjectivesConfig:
     prediction_propio: PredictionObjectiveConfig = field(
         default_factory=PredictionObjectiveConfig
     )
+    rssm_kl: RSSMKLObjectiveConfig = field(default_factory=RSSMKLObjectiveConfig)
 
     def build_objectives_list(
         self,
@@ -92,6 +95,10 @@ class ObjectivesConfig:
                         repr_dim=repr_dim,
                         pred_attr="propio",
                     )
+                )
+            elif objective_type == ObjectiveType.RSSMKL:
+                objectives.append(
+                    RSSMKLObjective(self.rssm_kl, name_prefix=name_prefix)
                 )
             else:
                 raise NotImplementedError()

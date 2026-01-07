@@ -4,6 +4,7 @@
 # This source code is licensed under the license found in the
 # LICENSE file in the root directory of this source tree.
 #
+# このresnetは画像入力の際にJEPAへのEncoderとして使用
 
 import torch
 import torch.nn as nn

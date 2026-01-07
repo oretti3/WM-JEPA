@@ -423,7 +423,12 @@ def build_backbone(
             zero_init_residual=False, num_channels=config.channels
         )
     elif arch == "impala":
-        backbone = ImpalaEncoder(final_ln=config.final_ln)
+        output_dim = config.fc_output_dim or 512
+        backbone = ImpalaEncoder(
+            final_ln=config.final_ln,
+            input_channels=config.channels,
+            output_dim=output_dim,
+        )
     elif arch == "id":
         backbone = PassThrough()
         assert config.input_dim is not None

@@ -59,6 +59,42 @@ def _run_train(repo_root: Path, config_path: Path, values):
     subprocess.run(cmd, check=True, cwd=repo_root)
 
 
+def _ensure_wall_trials(repo_root: Path, config_path: Path) -> None:
+    cfg = OmegaConf.load(config_path)
+    wall_eval_cfg = cfg.get("eval_cfg", {}).get("wall_planning", None)
+    if wall_eval_cfg is None:
+        return
+    eval_path = wall_eval_cfg.get("set_start_target_path")
+    if not eval_path:
+        return
+
+    eval_path = _resolve_path(repo_root, eval_path)
+    if eval_path.exists():
+        return
+
+    n_eval = int(wall_eval_cfg.get("n_envs", 20))
+    train_path = repo_root / "PLDM_hieral" / "wall_trials_train.npz"
+    seed = cfg.get("seed")
+    if seed is None:
+        seed = 42
+    seed = int(seed)
+    cmd = [
+        sys.executable,
+        str(repo_root / "PLDM_hieral" / "generate_wall_trials.py"),
+        "--config",
+        str(config_path),
+        "--output_train",
+        str(train_path),
+        "--output_eval",
+        str(eval_path),
+        "--n_eval",
+        str(n_eval),
+        "--seed",
+        str(seed),
+    ]
+    subprocess.run(cmd, check=True, cwd=repo_root)
+
+
 def _load_summary(output_path: Path):
     summary_path = output_path / "summary.json"
     if summary_path.exists():
@@ -118,9 +154,11 @@ def main():
     output_path_l2 = _output_path_from_config(repo_root, config_l2, args.output_root)
 
     if args.mode in ("l1", "both"):
+        _ensure_wall_trials(repo_root, config_l1)
         _run_train(repo_root, config_l1, _build_values(args))
 
     if args.mode in ("l2", "both"):
+        _ensure_wall_trials(repo_root, config_l2)
         latest_ckpt = pick_latest_model(output_path_l1)
         if latest_ckpt is None:
             raise FileNotFoundError(f"No L1 checkpoints found in {output_path_l1}")

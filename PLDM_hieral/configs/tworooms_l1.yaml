@@ -54,7 +54,7 @@ data:
     val_size: 10000
     train: true
     repeat_actions: 1
-epochs: 100
+epochs: 200
 eval_at_beginning: false
 eval_during_training: false
 eval_mpcs: 20
@@ -123,17 +123,18 @@ eval_cfg:
   env_name: *env_name
   log_heatmap: false
   wall_planning:
-    n_envs: 100
+    set_start_target_path: "PLDM_hieral/wall_trials_eval.npz"
+    n_envs: 20
     seed: 42
     levels: "medium"
     easy:
       n_steps: 50
-      n_envs: 100
+      n_envs: 20
       max_plan_length: 96
       override_config: true
     medium:
       n_steps: 200
-      n_envs: 100
+      n_envs: 20
       max_plan_length: 96
       override_config: true
     n_envs_batch_size: 20

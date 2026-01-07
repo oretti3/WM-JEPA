@@ -3,7 +3,7 @@ import warnings
 
 warnings.filterwarnings("ignore", message="Ill-formed record")
 
-from typing import Optional
+from typing import Optional, NamedTuple
 import os
 import shutil
 from dataclasses import dataclass, field
@@ -44,6 +44,19 @@ def seed_everything(seed):
     torch.manual_seed(seed)
     np.random.seed(seed)
     random.seed(seed)
+
+
+class SubgoalLossInfo(NamedTuple):
+    total_loss: torch.Tensor
+    subgoal_loss: torch.Tensor
+    loss_name: str = "subgoal"
+    name_prefix: str = ""
+
+    def build_log_dict(self):
+        return {
+            f"{self.name_prefix}/{self.loss_name}_total_loss": self.total_loss.item(),
+            f"{self.name_prefix}/{self.loss_name}_loss": self.subgoal_loss.item(),
+        }
 
 
 # 学習全体の設定（YAML/CLIから上書き可能）
@@ -165,6 +178,47 @@ class Trainer:
     def _print(self, *args, force=False, **kwargs):
         if self.config.verbose or force:
             print(*args, **kwargs)
+
+    def _compute_subgoal_loss(self, forward_result):
+        if (
+            not self.config.hjepa.l2_subgoal
+            or self.config.hjepa.disable_l2
+            or not self.config.hjepa.train_l1
+        ):
+            return None
+
+        if (
+            forward_result is None
+            or forward_result.level1 is None
+            or forward_result.level2 is None
+        ):
+            return None
+
+        l1_pred_output = forward_result.level1.pred_output
+        l2_pred_output = forward_result.level2.pred_output
+        if l1_pred_output is None or l2_pred_output is None:
+            return None
+
+        l1_preds = l1_pred_output.predictions
+        l2_preds = l2_pred_output.predictions
+        if l1_preds is None or l2_preds is None:
+            return None
+
+        step_skip = max(1, self.model.config.step_skip)
+        l1_sub = l1_preds[::step_skip]
+        l2_sub = l2_preds[: l1_sub.shape[0]]
+        if l2_sub.shape[0] < l1_sub.shape[0]:
+            l1_sub = l1_sub[: l2_sub.shape[0]]
+        if l1_sub.numel() == 0 or l2_sub.numel() == 0:
+            return None
+
+        subgoal_loss = (l1_sub - l2_sub).pow(2).mean()
+        total_loss = subgoal_loss * self.config.hjepa.l2_subgoal_coeff
+        return SubgoalLossInfo(
+            total_loss=total_loss,
+            subgoal_loss=subgoal_loss,
+            name_prefix="hier",
+        )
 
     def __init__(self, config: TrainConfig):
         self.config = config
@@ -302,7 +356,15 @@ class Trainer:
             return False
         self._print("resuming from", latest_checkpoint, force=True)
         checkpoint = torch.load(latest_checkpoint)
-        self.model.load_state_dict(checkpoint["model_state_dict"])
+        res = self.model.load_state_dict(checkpoint["model_state_dict"], strict=False)
+        if res.missing_keys:
+            self._print(
+                f"missing keys when resuming: {res.missing_keys}", force=True
+            )
+        if res.unexpected_keys:
+            raise RuntimeError(
+                f"Unexpected keys when resuming: {res.unexpected_keys}"
+            )
         self.optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
         self.epoch = checkpoint["epoch"]
         self.step = checkpoint["step"]
@@ -423,6 +485,10 @@ class Trainer:
                         for objective in self.objectives_l2
                     ]
 
+                subgoal_info = self._compute_subgoal_loss(forward_result)
+                if subgoal_info is not None:
+                    loss_infos.append(subgoal_info)
+
                 total_loss = sum([loss_info.total_loss for loss_info in loss_infos])
                 if total_loss.isnan():
                     raise RuntimeError("NaN loss")
@@ -515,6 +581,10 @@ class Trainer:
                     objective(batch, [forward_result.level2])
                     for objective in self.objectives_l2
                 ]
+
+            subgoal_info = self._compute_subgoal_loss(forward_result)
+            if subgoal_info is not None:
+                loss_infos.append(subgoal_info)
 
             for loss_info in loss_infos:
                 for attr in loss_info._fields:

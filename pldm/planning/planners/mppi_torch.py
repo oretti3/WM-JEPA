@@ -222,6 +222,9 @@ class MPPI:
         else:
             state = self.state.view(1, -1).repeat(K, 1)
 
+        if hasattr(self.F, "prepare_rollout"):
+            self.F.prepare_rollout(state, perturbed_actions)
+
         # rollout action trajectory M times to estimate expected cost
         state = state.repeat(self.M, 1, 1)
 

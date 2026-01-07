@@ -37,6 +37,9 @@ class HJEPAConfig(ConfigBase):
     l2_decoder_arch: str = "512-512"
     l2_use_actions: bool = True
     l2_action_agg: str = "concat"
+    l2_condition_l1: bool = False
+    l2_subgoal: bool = False
+    l2_subgoal_coeff: float = 1.0
 
 
 class ForwardResult(NamedTuple):
@@ -44,7 +47,49 @@ class ForwardResult(NamedTuple):
     level2: Optional[JEPAForwardResult] = None
 
 
-class HJEPA(torch.nn.Module):
+class _L1ConditionedWrapper:
+    def __init__(self, hjepa: "HJEPA"):
+        self._hjepa = hjepa
+        self._level1 = hjepa.level1
+        self.config = self._level1.config
+        self.backbone = self._level1.backbone
+        self.predictor = self._level1.predictor
+        self.spatial_repr_dim = self._level1.spatial_repr_dim
+        self.use_propio_pos = self._level1.use_propio_pos
+        self.use_propio_vel = self._level1.use_propio_vel
+
+    def forward_prior(self, *args, **kwargs):
+        kwargs.pop("level", None)
+        return self._hjepa.forward_prior(*args, **kwargs, level="l1").level1
+
+    def forward_posterior(self, *args, **kwargs):
+        return self._hjepa.forward_posterior(*args, **kwargs).level1
+
+    def update_ema(self):
+        self._level1.update_ema()
+
+    def parameters(self, recurse: bool = True):
+        return self._level1.parameters(recurse=recurse)
+
+    def train(self, mode: bool = True):
+        self._level1.train(mode)
+        return self
+
+    def eval(self):
+        return self.train(False)
+
+    def to(self, *args, **kwargs):
+        self._level1.to(*args, **kwargs)
+        return self
+
+    def cuda(self, *args, **kwargs):
+        return self.to(*args, **kwargs)
+
+    def __getattr__(self, name):
+        return getattr(self._level1, name)
+
+
+class HJEPA(torch.nn.Module): # L1はjepa.pyと同じ、l2はRSSMでprior/posterior予測、Decoderで次の表現予測
     def __init__(
         self,
         config: HJEPAConfig,
@@ -68,6 +113,8 @@ class HJEPA(torch.nn.Module):
         self.l2_rnn_state_dim = None
         self.l2_backbone = None
         self.l2_backbone_config = None
+        self.l2_action_projector = None
+        self.level1_conditioned = None
         if not self.config.disable_l2:
             # L2用のバックボーン設定（未指定ならL1をコピー）
             if self.config.l2_backbone is None:
@@ -116,6 +163,7 @@ class HJEPA(torch.nn.Module):
                 use_action_only=self.config.l2_use_action_only,
             )
             posterior_input_dim = self.l2_repr_dim + self.l2_rnn_state_dim
+            # l2のposteriorとdecoderはシンプルなmlp
             self.posterior_l2 = build_mlp(
                 self.config.l2_posterior_arch,
                 input_dim=posterior_input_dim,
@@ -127,7 +175,7 @@ class HJEPA(torch.nn.Module):
                 input_dim=decoder_input_dim,
                 output_shape=self.l2_repr_dim,
             )
-            # L2表現とRNN状態次元が違う場合は射影
+            # L2表現とRNN状態次元が違う場合は射影(線形層で次元を揃える)
             if self.l2_rnn_state_dim != self.l2_repr_dim:
                 self.l2_state_projector = torch.nn.Linear(
                     self.l2_repr_dim, self.l2_rnn_state_dim
@@ -135,7 +183,15 @@ class HJEPA(torch.nn.Module):
             else:
                 self.l2_state_projector = torch.nn.Identity()
 
-    def _build_propio_states(self, propio_pos, propio_vel):
+            if self.config.l2_condition_l1:
+                if self.level1.config.action_dim <= 0:
+                    raise ValueError("L2 conditioning requires L1 action_dim > 0")
+                self.l2_action_projector = torch.nn.Linear(
+                    self.config.l2_z_dim, self.level1.config.action_dim
+                )
+                self.level1_conditioned = _L1ConditionedWrapper(self)
+
+    def _build_propio_states(self, propio_pos, propio_vel): # propio:ロボットのアームの関節位置・速度
         # propio_pos/vel を結合してバックボーンに渡す
         if propio_pos is None or propio_vel is None:
             raise ValueError("propio_pos and propio_vel are required for proprio input")
@@ -175,6 +231,28 @@ class HJEPA(torch.nn.Module):
             action_chunks.append(chunk)
         return torch.stack(action_chunks, dim=0)
 
+    def _expand_l2_latents(self, latents: torch.Tensor, target_steps: int):
+        if latents is None:
+            return None
+        expanded = latents.repeat_interleave(self.config.step_skip, dim=0)
+        if expanded.shape[0] < target_steps:
+            pad = expanded[-1:].repeat(target_steps - expanded.shape[0], 1, 1)
+            expanded = torch.cat([expanded, pad], dim=0)
+        if expanded.shape[0] > target_steps:
+            expanded = expanded[:target_steps]
+        return expanded
+
+    def _condition_l1_actions(self, actions, l2_latents, target_steps: int):
+        if (
+            actions is None
+            or l2_latents is None
+            or self.l2_action_projector is None
+        ):
+            return actions
+        expanded_latents = self._expand_l2_latents(l2_latents, target_steps)
+        cond_actions = self.l2_action_projector(expanded_latents)
+        return actions + cond_actions
+
     def forward_prior(
         self,
         input_states: torch.Tensor,
@@ -191,11 +269,39 @@ class HJEPA(torch.nn.Module):
     ) -> ForwardResult:
         # levelでL1/L2のpriorロールアウトを切り替える
         if level == "l1":
+            conditioned_actions = actions
+            if (
+                self.config.l2_condition_l1
+                and not self.config.disable_l2
+                and not repr_input
+                and actions is not None
+            ):
+                l2_result = self._forward_prior_l2(
+                    input_states=input_states,
+                    actions=actions,
+                    T=T,
+                    repr_input=repr_input,
+                    propio_pos=propio_pos,
+                    propio_vel=propio_vel,
+                    latents=None,
+                    actions_are_l2=actions_are_l2,
+                )
+                l2_latents = (
+                    l2_result.pred_output.priors
+                    if l2_result is not None and l2_result.pred_output is not None
+                    else None
+                )
+                conditioned_actions = self._condition_l1_actions(
+                    actions,
+                    l2_latents,
+                    target_steps=actions.shape[0],
+                )
+
             return ForwardResult(
                 level1=self.level1.forward_prior(
                     input_states,
                     repr_input=repr_input,
-                    actions=actions,
+                    actions=conditioned_actions,
                     propio_pos=propio_pos,
                     propio_vel=propio_vel,
                     latents=latents,
@@ -233,9 +339,9 @@ class HJEPA(torch.nn.Module):
         actions_are_l2: bool,
     ) -> JEPAForwardResult:
         # 入力が表現か画像かで処理を分岐
-        if repr_input:
+        if repr_input: # すでに表現の場合
             current_state = input_states
-        else:
+        else: # 画像入力ならバックボーンで表現化
             l2_encode_result = self._encode_l2(
                 input_states, propio_pos=propio_pos, propio_vel=propio_vel
             )
@@ -336,24 +442,7 @@ class HJEPA(torch.nn.Module):
     ) -> ForwardResult:
         forward_result_l1 = None
         forward_result_l2 = None
-
-        if self.config.train_l1:
-            # L1は部分系列を抜き出して学習
-            # sample a subsequence of length l1_n_steps
-            sub_idx = random.randint(0, input_states.shape[0] - self.config.l1_n_steps)
-            l1_input_states = input_states[sub_idx : sub_idx + self.config.l1_n_steps]
-            l1_actions = actions[sub_idx : sub_idx + self.config.l1_n_steps - 1]
-
-            forward_result_l1 = self.level1.forward_posterior(
-                l1_input_states,
-                l1_actions,
-                propio_pos=propio_pos,
-                propio_vel=propio_vel,
-                chunked_locations=chunked_locations,
-                chunked_propio_pos=chunked_propio_pos,
-                chunked_propio_vel=chunked_propio_vel,
-                encode_only=False,
-            )
+        l2_posteriors = None
 
         if not self.config.disable_l2:
             # L2はstep_skipごとに間引いた表現で学習
@@ -439,6 +528,43 @@ class HJEPA(torch.nn.Module):
                 ema_backbone_output=ema_backbone_output_l2,
                 pred_output=pred_output_l2,
                 actions=actions_l2,
+            )
+            l2_posteriors = pred_output_l2.posteriors
+
+        if self.config.train_l1:
+            # L1は部分系列を抜き出して学習
+            if self.config.l2_subgoal:
+                sub_idx = 0
+            else:
+                sub_idx = random.randint(
+                    0, input_states.shape[0] - self.config.l1_n_steps
+                )
+            l1_input_states = input_states[sub_idx : sub_idx + self.config.l1_n_steps]
+            l1_actions = actions[sub_idx : sub_idx + self.config.l1_n_steps - 1]
+
+            if (
+                self.config.l2_condition_l1
+                and l2_posteriors is not None
+                and actions is not None
+            ):
+                conditioned_actions = self._condition_l1_actions(
+                    actions,
+                    l2_posteriors,
+                    target_steps=actions.shape[0],
+                )
+                l1_actions = conditioned_actions[
+                    sub_idx : sub_idx + self.config.l1_n_steps - 1
+                ]
+
+            forward_result_l1 = self.level1.forward_posterior(
+                l1_input_states,
+                l1_actions,
+                propio_pos=propio_pos,
+                propio_vel=propio_vel,
+                chunked_locations=chunked_locations,
+                chunked_propio_pos=chunked_propio_pos,
+                chunked_propio_vel=chunked_propio_vel,
+                encode_only=False,
             )
 
         return ForwardResult(level1=forward_result_l1, level2=forward_result_l2)
