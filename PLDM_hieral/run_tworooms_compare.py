@@ -144,6 +144,11 @@ def main():
     parser.add_argument("--seed", type=int, default=None)
     parser.add_argument("--epochs", type=int, default=None)
     parser.add_argument("--mode", choices=["l1", "l2", "both"], default="both")
+    parser.add_argument(
+        "--l2_from_scratch",
+        action="store_true",
+        help="Train L2 without loading the latest L1 checkpoint.",
+    )
     args = parser.parse_args()
 
     repo_root = REPO_ROOT
@@ -159,10 +164,14 @@ def main():
 
     if args.mode in ("l2", "both"):
         _ensure_wall_trials(repo_root, config_l2)
-        latest_ckpt = pick_latest_model(output_path_l1)
-        if latest_ckpt is None:
-            raise FileNotFoundError(f"No L1 checkpoints found in {output_path_l1}")
-        values = _build_values(args, extra_values=[f"load_checkpoint_path={latest_ckpt}"])
+        values = _build_values(args)
+        if not args.l2_from_scratch:
+            latest_ckpt = pick_latest_model(output_path_l1)
+            if latest_ckpt is None:
+                raise FileNotFoundError(f"No L1 checkpoints found in {output_path_l1}")
+            values = _build_values(
+                args, extra_values=[f"load_checkpoint_path={latest_ckpt}"]
+            )
         _run_train(repo_root, config_l2, values)
 
     summary_l1 = _load_summary(output_path_l1)
