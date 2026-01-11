@@ -6,7 +6,7 @@ Minimal HJEPA L2 implementation and TwoRooms (wall) comparison workflow.
 - `PLDM_hieral/configs/`: TwoRooms実験設定（L1/L2）
 - `PLDM_hieral/configs/tworooms_l1_6m.yaml`: パラメータ数を揃えたL1のみ（約6M）
 - `PLDM_hieral/run_tworooms_compare.py`: L1→L2の連続実行スクリプト
-- `PLDM_hieral/colab_run.ipynb`: Colab実行手順
+- `PLDM_hieral/colab_run_(1).ipynb`: Colab実行手順
 - `PLDM_hieral/colab_pack.sh`: Colab用のtar作成
 - `PLDM_hieral/colab_pack_6m.sh`: 6M比較用のtar作成
 - `pldm/models/jepa_6m.py`: JEPA 6Mの構成/パラメータ確認スクリプト
@@ -68,7 +68,7 @@ python PLDM_hieral/run_tworooms_compare.py \
 ```bash
 bash PLDM_hieral/colab_pack_6m.sh
 ```
-2) Colabで `PLDM_hieral/colab_run.ipynb` を開き、  
+2) Colabで `PLDM_hieral/colab_run_(1).ipynb` を開き、  
    「Run L1 6M baseline」→「Run L2 model」の順で実行。
 
 ## Contents
@@ -78,7 +78,7 @@ bash PLDM_hieral/colab_pack_6m.sh
 - `PLDM_hieral/run_tworooms_compare.py`: Run L1, then L2, and print a summary.
 - `PLDM_hieral/colab_pack.sh`: Create a tarball for Colab.
 - `PLDM_hieral/colab_pack_6m.sh`: Create a tarball for the 6M comparison.
-- `PLDM_hieral/colab_run.ipynb`: Colab workflow.
+- `PLDM_hieral/colab_run_(1).ipynb`: Colab workflow.
 
 ## Dataset prep (TwoRooms)
 Run from the repo root:
@@ -114,5 +114,5 @@ bash PLDM_hieral/colab_pack.sh
 - L1 6M outputs: `PLDM_hieral/outputs/tworooms_l1_6m`
 - L2 outputs: `PLDM_hieral/outputs/tworooms_l2`
 - Summaries: `summary.json` and `summary_epoch=*.json` in each output dir
-- Comparison CSV: `PLDM_hieral/outputs/tworooms_compare.csv` (or `--output_root`)
+- Comparison CSV: `PLDM_hieral/tworooms_compare.csv`（デフォルト）。`--output_root` を指定した場合はその配下に保存されます。
 - Fixed trials: `PLDM_hieral/wall_trials_train.npz`, `PLDM_hieral/wall_trials_eval.npz`

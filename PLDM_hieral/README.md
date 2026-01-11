@@ -65,10 +65,10 @@ python PLDM_hieral/run_tworooms_compare.py --mode both --epochs 100 --seed 123 -
 bash PLDM_hieral/colab_pack.sh
 ```
 
-2) Upload the tarball to Colab and run `PLDM_hieral/colab_run.ipynb`.
+2) Upload the tarball to Colab and run `PLDM_hieral/colab_run_(1).ipynb`.
 
 ## Outputs
 - L1 outputs: `PLDM_hieral/outputs/tworooms_l1`
 - L2 outputs: `PLDM_hieral/outputs/tworooms_l2`
 - Summaries: `summary.json` and `summary_epoch=*.json` in each output dir
-- Comparison CSV: `PLDM_hieral/outputs/tworooms_compare.csv` (or `--output_root`)
+- Comparison CSV: `PLDM_hieral/tworooms_compare.csv`（デフォルト）。`--output_root` を指定した場合はその配下に保存されます。
