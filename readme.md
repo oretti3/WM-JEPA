@@ -20,10 +20,10 @@ Minimal HJEPA L2 implementation and TwoRooms (wall) comparison workflow.
 
 | metric | L1 | L2 |
 | --- | ---: | ---: |
-| wall_mediumcross_wall_rate | 0.3199999928474426 | 0.41999998688697815 |
-| wall_mediuminit_plan_cross_wall_rate | 0.5299999713897705 | 0.5699999928474426 |
-| wall_mediumplanning_error_mean | 527.7476806640625 | 405.44952392578125 |
-| wall_mediumplanning_error_mean_rmse | 22.972759246826172 | 20.13577651977539 |
+| wall_mediumcross_wall_rate | 0.2199999988079071 | 0.07999999821186066 |
+| wall_mediuminit_plan_cross_wall_rate | 0.6100000143051147 | 0.6100000143051147 |
+| wall_mediumplanning_error_mean | 575.4636840820312 | 780.8388061523438 |
+| wall_mediumplanning_error_mean_rmse | 23.98882484436035 | 27.943492889404297 |
 
 メモ:
 - `cross_wall_rate` / `init_plan_cross_wall_rate` は高いほど良い（反対側へ到達できた割合）
@@ -107,7 +107,7 @@ python PLDM_hieral/run_tworooms_compare.py --mode both --epochs 100 --seed 123 -
 bash PLDM_hieral/colab_pack.sh
 ```
 
-2) Upload the tarball to Colab and run `PLDM_hieral/colab_run.ipynb`.
+2) Upload the tarball to Colab and run `PLDM_hieral/colab_run_(1).ipynb`.
 
 ## Outputs
 - L1 outputs: `PLDM_hieral/outputs/tworooms_l1`

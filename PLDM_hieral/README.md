@@ -5,7 +5,7 @@ Minimal HJEPA L2 implementation and TwoRooms (wall) comparison workflow.
 ## フォルダ構成（要点）
 - `PLDM_hieral/configs/`: TwoRooms実験設定（L1/L2）
 - `PLDM_hieral/run_tworooms_compare.py`: L1→L2の連続実行スクリプト
-- `PLDM_hieral/colab_run.ipynb`: Colab実行手順
+- `PLDM_hieral/colab_run_(1).ipynb`: Colab実行手順
 - `PLDM_hieral/colab_pack.sh`: Colab用のtar作成
 - `PLDM_hieral/wall_mediumlast_episode_level1.gif`: L1可視化（最後のエピソード）
 - `PLDM_hieral/wall_mediumlast_episode_level2.gif`: L2可視化（最後のエピソード）
@@ -16,10 +16,10 @@ Minimal HJEPA L2 implementation and TwoRooms (wall) comparison workflow.
 
 | metric | L1 | L2 |
 | --- | ---: | ---: |
-| wall_mediumcross_wall_rate | 0.3199999928474426 | 0.41999998688697815 |
-| wall_mediuminit_plan_cross_wall_rate | 0.5299999713897705 | 0.5699999928474426 |
-| wall_mediumplanning_error_mean | 527.7476806640625 | 405.44952392578125 |
-| wall_mediumplanning_error_mean_rmse | 22.972759246826172 | 20.13577651977539 |
+| wall_mediumcross_wall_rate | 0.2199999988079071 | 0.07999999821186066 |
+| wall_mediuminit_plan_cross_wall_rate | 0.6100000143051147 | 0.6100000143051147 |
+| wall_mediumplanning_error_mean | 575.4636840820312 | 780.8388061523438 |
+| wall_mediumplanning_error_mean_rmse | 23.98882484436035 | 27.943492889404297 |
 
 メモ:
 - `cross_wall_rate` / `init_plan_cross_wall_rate` は高いほど良い（反対側へ到達できた割合）
