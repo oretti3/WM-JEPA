@@ -11,7 +11,7 @@ data:
   offline_wall_config:
     n_steps: *n_steps
     use_offline: true
-    offline_data_path: "pldm_envs/wall/presaved_datasets/rendered/ds_size_634.npz"
+    offline_data_path: "pldm_envs/wall/presaved_datasets/rendered/ds_size_1500K.npz"
     lazy_load: false
     batch_size: 64
     device: cuda
