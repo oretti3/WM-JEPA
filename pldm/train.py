@@ -358,13 +358,9 @@ class Trainer:
         checkpoint = torch.load(latest_checkpoint)
         res = self.model.load_state_dict(checkpoint["model_state_dict"], strict=False)
         if res.missing_keys:
-            self._print(
-                f"missing keys when resuming: {res.missing_keys}", force=True
-            )
+            self._print(f"missing keys when resuming: {res.missing_keys}", force=True)
         if res.unexpected_keys:
-            raise RuntimeError(
-                f"Unexpected keys when resuming: {res.unexpected_keys}"
-            )
+            raise RuntimeError(f"Unexpected keys when resuming: {res.unexpected_keys}")
         self.optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
         self.epoch = checkpoint["epoch"]
         self.step = checkpoint["step"]
@@ -410,9 +406,7 @@ class Trainer:
             base_lr=self.config.base_lr,
         ).create_optimizer()
 
-        self._print(
-            f"starting training for {self.config.epochs} epochs", force=True
-        )
+        self._print(f"starting training for {self.config.epochs} epochs", force=True)
 
         if self.config.resume_if_possible:
             if self.maybe_resume():
@@ -675,6 +669,7 @@ class Trainer:
 
 
 # エントリーポイント
+
 
 def main(config: TrainConfig):
     torch.set_num_threads(1)

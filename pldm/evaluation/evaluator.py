@@ -158,9 +158,8 @@ class Evaluator:
         )
 
         l1_model = self.model.level1
-        if (
-            getattr(self.model, "level1_conditioned", None) is not None
-            and getattr(self.model.config, "l2_condition_l1", False)
+        if getattr(self.model, "level1_conditioned", None) is not None and getattr(
+            self.model.config, "l2_condition_l1", False
         ):
             l1_model = self.model.level1_conditioned
 

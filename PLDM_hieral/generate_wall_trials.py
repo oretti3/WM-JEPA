@@ -69,7 +69,9 @@ def main() -> None:
         default="PLDM_hieral/configs/tworooms_l1.yaml",
         help="Config path for wall parameters.",
     )
-    parser.add_argument("--n-train", "--n_train", dest="n_train", type=int, default=None)
+    parser.add_argument(
+        "--n-train", "--n_train", dest="n_train", type=int, default=None
+    )
     parser.add_argument("--n-eval", "--n_eval", dest="n_eval", type=int, default=20)
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument(

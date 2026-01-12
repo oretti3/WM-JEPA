@@ -51,7 +51,9 @@ def main() -> None:
 
     model = build_jepa_6m(output_dim=args.output_dim)
     total, trainable = count_params(model)
-    print(f"JEPA output_dim={args.output_dim} total_params={total:,} trainable={trainable:,}")
+    print(
+        f"JEPA output_dim={args.output_dim} total_params={total:,} trainable={trainable:,}"
+    )
 
 
 if __name__ == "__main__":

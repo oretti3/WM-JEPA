@@ -107,7 +107,9 @@ class LearnedDynamics:
                     propio_pos = propio_pos.unsqueeze(0)
                 if propio_pos.shape[0] != batch_size:
                     if propio_pos.shape[0] == 1:
-                        propio_pos = propio_pos.expand(batch_size, *propio_pos.shape[1:])
+                        propio_pos = propio_pos.expand(
+                            batch_size, *propio_pos.shape[1:]
+                        )
                     else:
                         propio_pos = propio_pos[:batch_size]
 
@@ -119,7 +121,9 @@ class LearnedDynamics:
                     propio_vel = propio_vel.unsqueeze(0)
                 if propio_vel.shape[0] != batch_size:
                     if propio_vel.shape[0] == 1:
-                        propio_vel = propio_vel.expand(batch_size, *propio_vel.shape[1:])
+                        propio_vel = propio_vel.expand(
+                            batch_size, *propio_vel.shape[1:]
+                        )
                     else:
                         propio_vel = propio_vel[:batch_size]
 
@@ -181,9 +185,7 @@ class LearnedDynamics:
             and t is not None
         ):
             if t < self._conditioned_actions.shape[0]:
-                action = self._match_action_shape(
-                    action, self._conditioned_actions[t]
-                )
+                action = self._match_action_shape(action, self._conditioned_actions[t])
 
         # make sure state is in correct format
         og_shape = state.shape

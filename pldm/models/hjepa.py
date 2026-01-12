@@ -89,7 +89,9 @@ class _L1ConditionedWrapper:
         return getattr(self._level1, name)
 
 
-class HJEPA(torch.nn.Module): # L1はjepa.pyと同じ、l2はRSSMでprior/posterior予測、Decoderで次の表現予測
+class HJEPA(
+    torch.nn.Module
+):  # L1はjepa.pyと同じ、l2はRSSMでprior/posterior予測、Decoderで次の表現予測
     def __init__(
         self,
         config: HJEPAConfig,
@@ -191,7 +193,9 @@ class HJEPA(torch.nn.Module): # L1はjepa.pyと同じ、l2はRSSMでprior/poster
                 )
                 self.level1_conditioned = _L1ConditionedWrapper(self)
 
-    def _build_propio_states(self, propio_pos, propio_vel): # propio:ロボットのアームの関節位置・速度
+    def _build_propio_states(
+        self, propio_pos, propio_vel
+    ):  # propio:ロボットのアームの関節位置・速度
         # propio_pos/vel を結合してバックボーンに渡す
         if propio_pos is None or propio_vel is None:
             raise ValueError("propio_pos and propio_vel are required for proprio input")
@@ -243,11 +247,7 @@ class HJEPA(torch.nn.Module): # L1はjepa.pyと同じ、l2はRSSMでprior/poster
         return expanded
 
     def _condition_l1_actions(self, actions, l2_latents, target_steps: int):
-        if (
-            actions is None
-            or l2_latents is None
-            or self.l2_action_projector is None
-        ):
+        if actions is None or l2_latents is None or self.l2_action_projector is None:
             return actions
         expanded_latents = self._expand_l2_latents(l2_latents, target_steps)
         cond_actions = self.l2_action_projector(expanded_latents)
@@ -339,9 +339,9 @@ class HJEPA(torch.nn.Module): # L1はjepa.pyと同じ、l2はRSSMでprior/poster
         actions_are_l2: bool,
     ) -> JEPAForwardResult:
         # 入力が表現か画像かで処理を分岐
-        if repr_input: # すでに表現の場合
+        if repr_input:  # すでに表現の場合
             current_state = input_states
-        else: # 画像入力ならバックボーンで表現化
+        else:  # 画像入力ならバックボーンで表現化
             l2_encode_result = self._encode_l2(
                 input_states, propio_pos=propio_pos, propio_vel=propio_vel
             )
