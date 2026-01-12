@@ -1,0 +1,5 @@
+metric,l1,l2
+wall_mediumcross_wall_rate,0.25,0.05000000074505806
+wall_mediuminit_plan_cross_wall_rate,0.6499999761581421,0.44999998807907104
+wall_mediumplanning_error_mean,528.1395874023438,718.16259765625
+wall_mediumplanning_error_mean_rmse,22.981287002563477,26.798555374145508
