@@ -27,8 +27,8 @@ def update_dataset_and_epochs(config, dataset_size_key, epochs):
     # Assuming standard paths based on size key
     if dataset_size_key == '634':
         path = "pldm_envs/wall/presaved_datasets/rendered/ds_size_634.npz"
-    elif dataset_size_key == '100k':
-        path = "pldm_envs/wall/presaved_datasets/rendered/ds_size_100k.npz" # Placeholder name
+    elif dataset_size_key == '20312':
+        path = "pldm_envs/wall/presaved_datasets/rendered/ds_size_20312.npz" # Placeholder name
     elif dataset_size_key == '1500k':
         path = "pldm_envs/wall/presaved_datasets/rendered/ds_size_1500K.npz"
     
@@ -95,7 +95,7 @@ def main():
     
     data_scales = [
         ('634', 2366),
-        ('100k', 15),
+        ('20312', 74),
         ('1500k', 1)
     ]
     
