@@ -167,7 +167,7 @@ class WallMPCEvaluator(MPCEvaluator):
         Run various analytics on mpc result
         """
         config = self.config
-        locations = data.locations
+        locations = torch.stack(data.locations)
         targets = data.targets
         wall_locs = self.wall_locs
 
@@ -240,7 +240,7 @@ class WallMPCEvaluator(MPCEvaluator):
         # Simplification: Distance from Start to Door Center + Wall Width
         
         # Get door locations
-        door_locs = torch.stack([e.door_y for e in self.envs]).to(locations.device)
+        door_locs = torch.stack([e.hole_y for e in self.envs]).to(locations.device)
         
         # Distance to door (Euclidean)
         # Door point: (wall_x, door_y)

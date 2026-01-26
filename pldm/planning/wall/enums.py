@@ -22,6 +22,8 @@ class MPCReport(NamedTuple):
     planning_time: int
     efficiency_score: float
     first_crossing_steps: float
+    cross_wall_rate: float
+    init_plan_cross_wall_rate: float
 
     def build_log_dict(self, prefix: str = ""):
         return {
