@@ -107,8 +107,9 @@ def make_dataset(ds, n_batches=1000):
 
         shape = images.shape
 
+        images = images.float()
         images -= images.amin(dim=(3, 4)).view(*shape[:3], 1, 1)
-        images /= images.amax(dim=(3, 4)).view(*shape[:3], 1, 1)
+        images /= (images.amax(dim=(3, 4)).view(*shape[:3], 1, 1) + 1e-8)
         images = (images * 255).to(torch.uint8)
 
         states.append(images.cpu())
@@ -211,6 +212,7 @@ def main():
 
     ds_name_suffix = build_name_suffix(args)
 
+    # output_path = f'/pldm_envs/wall/presaved_datasets/wall-visual-{config_name}_{ds_name_suffix}-v0.npz'
     # output_path = f'/pldm_envs/wall/presaved_datasets/wall-visual-{config_name}_{ds_name_suffix}-v0.npz'
     output_path = f"/volume/wall-visual-{config_name}_{ds_name_suffix}-v0.npz"
 
