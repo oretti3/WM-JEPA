@@ -1,6 +1,7 @@
 from pldm.configs import ConfigBase
 from dataclasses import dataclass
 from typing import Optional, NamedTuple
+from enum import Enum
 import torch
 
 
@@ -27,44 +28,6 @@ class PredictorConfig(ConfigBase):
     tie_backbone_ln: bool = False
 
 
-class PredictorOutput:
-    def __init__(
-        self,
-        predictions: torch.Tensor,
-        obs_component: Optional[torch.Tensor] = None,
-        propio_component: Optional[torch.Tensor] = None,
-        prior_mus: Optional[torch.Tensor] = None,
-        prior_vars: Optional[torch.Tensor] = None,
-        prior_logits: Optional[torch.Tensor] = None,
-        priors: Optional[torch.Tensor] = None,
-        posterior_mus: Optional[torch.Tensor] = None,
-        posterior_vars: Optional[torch.Tensor] = None,
-        posterior_logits: Optional[torch.Tensor] = None,
-        posteriors: Optional[torch.Tensor] = None,
-    ):
-        self.predictions = predictions
-        self._obs_component = obs_component
-        self.propio_component = propio_component
-        self.prior_mus = prior_mus
-        self.prior_vars = prior_vars
-        self.prior_logits = prior_logits
-        self.priors = priors
-        self.posterior_mus = posterior_mus
-        self.posterior_vars = posterior_vars
-        self.posterior_logits = posterior_logits
-        self.posteriors = posteriors
-
-    @property
-    def obs_component(self):
-        return (
-            self._obs_component if self._obs_component is not None else self.predictions
-        )
-
-    @obs_component.setter
-    def obs_component(self, value: Optional[torch.Tensor]):
-        self._obs_component = value
-
-
 class PredictorOutput(NamedTuple):
     predictions: torch.Tensor
     obs_component: Optional[torch.Tensor] = None
@@ -77,3 +40,12 @@ class PredictorOutput(NamedTuple):
     posterior_vars: Optional[torch.Tensor] = None
     posterior_logits: Optional[torch.Tensor] = None
     posteriors: Optional[torch.Tensor] = None
+
+
+class ModelType(str, Enum):
+    """モデルアーキテクチャのタイプ"""
+
+    JEPA = "jepa"
+    HJEPA_V1 = "hjepa_v1"
+    HJEPA = "hjepa"  # エイリアス（hjepa_v1と同じ）
+    # HJEPA_V2 = "hjepa_v2"  # 将来追加

@@ -35,6 +35,8 @@ from pldm.evaluation.evaluator import EvalConfig, Evaluator
 # if "AMD" not in torch.cuda.get_device_name(0):
 
 from pldm.models.hjepa import HJEPA, HJEPAConfig
+from pldm.models.model_config import ModelConfig
+from pldm.models.factory import build_model
 
 from pldm.objectives import ObjectivesConfig
 import pldm.utils as utils
@@ -97,7 +99,11 @@ class TrainConfig(ConfigBase):
     save_every_n_epochs: int = 5
     eval_every_n_epochs: int = 20
 
-    hjepa: HJEPAConfig = field(default_factory=HJEPAConfig)
+    # ===== 新形式: model (推奨) =====
+    model: Optional[ModelConfig] = None
+
+    # ===== 旧形式: hjepa (後方互換性のため維持) =====
+    hjepa: Optional[HJEPAConfig] = None
 
     resume_if_possible: bool = True
     compile_model: bool = True
@@ -105,6 +111,23 @@ class TrainConfig(ConfigBase):
     eval_cfg: EvalConfig = field(default_factory=EvalConfig)
 
     def __post_init__(self):
+        # ===== 後方互換性: 旧形式 → 新形式への変換 =====
+        if self.model is None and self.hjepa is not None:
+            # 旧形式が使われている場合、自動的に新形式に変換
+            print(
+                "⚠️  Warning: Using legacy 'hjepa:' config format. "
+                "Consider migrating to 'model:' format."
+            )
+            self.model = ModelConfig(
+                model_type="hjepa_v1",
+                hjepa_v1=self.hjepa,
+            )
+
+        # 新形式が使われている場合はそのまま
+        if self.model is None:
+            # どちらも指定されていない場合はデフォルト生成
+            self.model = ModelConfig()
+
         # quick_debug時は設定を軽量化
         if self.quick_debug:
             self.data.quick_debug = True
@@ -166,12 +189,11 @@ class TrainConfig(ConfigBase):
             if os.path.exists(test_dir):
                 shutil.rmtree(test_dir)
 
-        # 目的関数のアクション次元を合わせる
-        self.objectives_l1.idm.action_dim = self.hjepa.level1.action_dim
-        if not self.hjepa.disable_l2 and self.hjepa.l2_use_actions:
-            self.objectives_l2.idm.action_dim = (
-                self.hjepa.level1.action_dim * self.hjepa.step_skip
-            )
+        # 後方互換性: hjepa形式をmodel形式に変換
+        if self.hjepa is not None and self.model is None:
+            from pldm.models import ModelConfig
+
+            self.model = ModelConfig(model_type="hjepa_v1", hjepa_v1=self.hjepa)
 
 
 class Trainer:
@@ -241,10 +263,16 @@ class Trainer:
         self.step = 0
 
         # データセット構築
+        # modelがNoneの場合はデフォルト値を使用
+        disable_l2_value = True
+        if config.model is not None:
+            active_cfg = config.model.get_active_config()
+            disable_l2_value = getattr(active_cfg, "disable_l2", True)
+
         datasets = DatasetFactory(
             config.data,
             probing_cfg=config.eval_cfg.probing,
-            disable_l2=config.hjepa.disable_l2,
+            disable_l2=disable_l2_value,
         ).create_datasets()
 
         self.datasets = datasets
@@ -272,8 +300,9 @@ class Trainer:
         )
 
         # モデル構築
-        self.model = HJEPA(
-            config.hjepa,
+        assert config.model is not None, "model config must be specified"
+        self.model = build_model(
+            model_config=config.model,
             input_dim=input_dim,
             normalizer=self.ds.normalizer,
             use_propio_pos=use_propio_pos,
@@ -283,13 +312,24 @@ class Trainer:
         self.model = self.model.cuda()
 
         # 目的関数の構築
+        active_config = config.model.get_active_config()
+
+        # L1用の目的関数
+        if hasattr(self.model, "level1"):
+            repr_dim_l1 = self.model.level1.spatial_repr_dim
+        else:
+            repr_dim_l1 = self.model.spatial_repr_dim
+
         self.objectives_l1 = self.config.objectives_l1.build_objectives_list(
-            name_prefix="l1", repr_dim=self.model.level1.spatial_repr_dim
+            name_prefix="l1", repr_dim=repr_dim_l1
         )
+
+        # L2用の目的関数
         self.objectives_l2 = []
-        if not self.config.hjepa.disable_l2:
+        if hasattr(active_config, "disable_l2") and not active_config.disable_l2:
+            repr_dim_l2 = self.model.l2_repr_dim
             self.objectives_l2 = self.config.objectives_l2.build_objectives_list(
-                name_prefix="l2", repr_dim=self.model.l2_repr_dim
+                name_prefix="l2", repr_dim=repr_dim_l2
             )
         # 事前学習モデルの読み込み
         load_result = self.maybe_load_model()
@@ -303,14 +343,16 @@ class Trainer:
                 "WARN: probing a random network. Is that intentional?", force=True
             )
 
-        assert not (self.config.hjepa.train_l1 and self.config.hjepa.freeze_l1)
+        # HJEPAの場合のアサーションと凍結処理
+        if hasattr(active_config, "train_l1") and hasattr(active_config, "freeze_l1"):
+            assert not (active_config.train_l1 and active_config.freeze_l1)
 
-        # L1を凍結する場合は勾配停止
-        if self.config.hjepa.freeze_l1:
-            self._print("freezing first level weights")
-            for m in self.model.level1.modules():
-                for p in m.parameters():
-                    p.requires_grad = False
+            # L1を凍結する場合は勾配停止
+            if active_config.freeze_l1:
+                self._print("freezing first level weights")
+                for m in self.model.level1.modules():
+                    for p in m.parameters():
+                        p.requires_grad = False
 
         self._print(self.model)
         # パラメータ数の集計
@@ -319,19 +361,46 @@ class Trainer:
         )
         self._print("number of params:", self.n_parameters)
 
-        l1_predictor_n_parameters = sum(
-            p.numel()
-            for p in self.model.level1.predictor.parameters()
-            if p.requires_grad
-        )
-        self._print("number of l1 predictor params:", l1_predictor_n_parameters)
+        # モデルタイプに応じたパラメータ数表示
+        if hasattr(self.model, "level1"):
+            # HJEPA
+            l1_predictor_n_parameters = sum(
+                p.numel()
+                for p in self.model.level1.predictor.parameters()
+                if p.requires_grad
+            )
+            self._print("number of l1 predictor params:", l1_predictor_n_parameters)
 
-        l1_backbone_n_parameters = sum(
-            p.numel()
-            for p in self.model.level1.backbone.parameters()
-            if p.requires_grad
-        )
-        self._print("number of l1 backbone params:", l1_backbone_n_parameters)
+            l1_backbone_n_parameters = sum(
+                p.numel()
+                for p in self.model.level1.backbone.parameters()
+                if p.requires_grad
+            )
+            self._print("number of l1 backbone params:", l1_backbone_n_parameters)
+        else:
+            # JEPA（単層）
+            predictor_n_parameters = sum(
+                p.numel() for p in self.model.predictor.parameters() if p.requires_grad
+            )
+            self._print("number of predictor params:", predictor_n_parameters)
+
+            backbone_n_parameters = sum(
+                p.numel() for p in self.model.backbone.parameters() if p.requires_grad
+            )
+            self._print("number of backbone params:", backbone_n_parameters)
+
+        # IDMのアクション次元を設定（モデルタイプに応じて）
+        if hasattr(self.model, "level1"):
+            # HJEPA
+            self.objectives_l1.idm.action_dim = self.model.level1.action_dim
+            active_config = config.model.get_active_config()
+            if not active_config.disable_l2 and active_config.l2_use_actions:
+                self.objectives_l2.idm.action_dim = (
+                    self.model.level1.action_dim * active_config.step_skip
+                )
+        else:
+            # JEPA
+            self.objectives_l1.idm.action_dim = self.model.action_dim
 
         Logger.run().log_summary(
             {
@@ -389,9 +458,9 @@ class Trainer:
                         if "decoder" in k:  # this is for loading RSSM
                             del state_dict[k]
                 res = self.model.load_state_dict(state_dict, strict=False)
-            assert (
-                len(res.unexpected_keys) == 0
-            ), f"Unexpected keys when loading weights: {res.unexpected_keys}"
+            assert len(res.unexpected_keys) == 0, (
+                f"Unexpected keys when loading weights: {res.unexpected_keys}"
+            )
             self._print(
                 f"loaded model from {self.config.load_checkpoint_path}", force=True
             )
@@ -450,33 +519,31 @@ class Trainer:
                 else:
                     data_time = None
 
-                # move to cuda and swap batch and time
-                s = batch.states.cuda().transpose(0, 1)
-                a = batch.actions.cuda().transpose(0, 1)
+                active_config = self.config.model.get_active_config()
 
-                lr = scheduler.adjust_learning_rate(step)
-
-                self.sample_step += s.shape[1]
-                self.step = step
-
-                self.optimizer.zero_grad()
-
-                optional_fields = get_optional_fields(batch, device=s.device)
-
-                # forward + loss + backward
-                forward_result = self.model.forward_posterior(s, a, **optional_fields)
-
-                loss_infos = []
-
-                if self.config.hjepa.train_l1:
+                # HJEPAの場合
+                if hasattr(forward_result, "level1") and hasattr(
+                    forward_result, "level2"
+                ):
+                    if hasattr(active_config, "train_l1") and active_config.train_l1:
+                        loss_infos += [
+                            objective(batch, [forward_result.level1])
+                            for objective in self.objectives_l1
+                        ]
+                    if (
+                        hasattr(active_config, "disable_l2")
+                        and not active_config.disable_l2
+                        and self.objectives_l2
+                    ):
+                        loss_infos += [
+                            objective(batch, [forward_result.level2])
+                            for objective in self.objectives_l2
+                        ]
+                else:
+                    # JEPA（単層）の場合
                     loss_infos += [
-                        objective(batch, [forward_result.level1])
+                        objective(batch, [forward_result])
                         for objective in self.objectives_l1
-                    ]
-                if not self.config.hjepa.disable_l2 and self.objectives_l2:
-                    loss_infos += [
-                        objective(batch, [forward_result.level2])
-                        for objective in self.objectives_l2
                     ]
 
                 subgoal_info = self._compute_subgoal_loss(forward_result)
@@ -488,7 +555,10 @@ class Trainer:
                     raise RuntimeError("NaN loss")
                 total_loss.backward()
                 self.optimizer.step()
-                self.model.update_ema()  # if ema is enabled, update ema encoder
+
+                # update ema-teacher（モデルがupdate_emaメソッドを持つ場合）
+                if hasattr(self.model, "update_ema"):
+                    self.model.update_ema()
 
                 train_time = time.time() - start_time
                 log_start_time = time.time()
