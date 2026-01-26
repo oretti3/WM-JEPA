@@ -29,15 +29,9 @@ class OptimizerFactory:
                 lars_adaptation_filter=exclude_bias_and_norm,
             )
         elif self.optimizer_type == OptimizerType.Adam:
-            params_list = [
-                {
-                    "params": self.model.level1.parameters(),
-                    "lr": self.base_lr,
-                }
-            ]
-
             optimizer = torch.optim.Adam(
-                params_list,
+                self.model.parameters(),
+                lr=self.base_lr,
                 weight_decay=1e-6,
             )
         else:

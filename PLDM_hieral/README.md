@@ -6,6 +6,9 @@ Minimal HJEPA L2 implementation and TwoRooms (wall) comparison workflow.
 - `PLDM_hieral/configs/`: TwoRooms実験設定（L1/L2）
 - `PLDM_hieral/run_tworooms_compare.py`: L1→L2の連続実行スクリプト
 - `PLDM_hieral/colab_run_(1).ipynb`: Colab実行手順
+- `PLDM_hieral/configs/tworooms_feedback.yaml`: フィードバック階層化の設定
+- `PLDM_hieral/run_tworooms_compare_feedback.py`: 非階層 vs フィードバック階層の比較
+- `PLDM_hieral/colab_run_feedback.ipynb`: Colab実行手順（フィードバック版）
 - `PLDM_hieral/colab_pack.sh`: Colab用のtar作成
 - `PLDM_hieral/wall_mediumlast_episode_level1.gif`: L1可視化（最後のエピソード）
 - `PLDM_hieral/wall_mediumlast_episode_level2.gif`: L2可視化（最後のエピソード）
@@ -37,6 +40,9 @@ Minimal HJEPA L2 implementation and TwoRooms (wall) comparison workflow.
 - `PLDM_hieral/run_tworooms_compare.py`: Run L1, then L2, and print a summary.
 - `PLDM_hieral/colab_pack.sh`: Create a tarball for Colab.
 - `PLDM_hieral/colab_run.ipynb`: Colab workflow.
+- `PLDM_hieral/configs/tworooms_feedback.yaml`: Feedback hierarchy config.
+- `PLDM_hieral/run_tworooms_compare_feedback.py`: Baseline vs feedback hierarchy comparison.
+- `PLDM_hieral/colab_run_feedback.ipynb`: Colab workflow (feedback hierarchy).
 
 ## Dataset prep (TwoRooms)
 Run from the repo root:
