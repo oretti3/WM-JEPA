@@ -232,7 +232,7 @@ class WallMPCEvaluator(MPCEvaluator):
             
             # Update first crossing step for those who just crossed and haven't crossed before
             just_crossed = has_crossed & (~crossed_mask)
-            first_crossing_steps[just_crossed] = t + 1 # 1-based index (step 1 is first movement)
+            first_crossing_steps[just_crossed] = t # 1-based index (step 0 is initial state, step 1 is after 1st action)
             crossed_mask = crossed_mask | just_crossed
 
         # 2. Calculate Minimal Steps (Theoretical)
