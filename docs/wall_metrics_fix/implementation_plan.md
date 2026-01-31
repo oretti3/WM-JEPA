@@ -3,7 +3,7 @@
 ## ゴール
 ユーザーが `pldm/planning/wall/mpc.py` に追加した壁越え指標（`efficiency_score`, `first_crossing_steps`）の実装を確認し、以下の問題を修正する。
 1. **ロジックの誤り**: `first_crossing_steps` の計算におけるOff-by-oneエラー（1ステップ多くカウントされている）。
-2. **出力の欠損**: `PLDM_hieral/run_tworooms_compare_feedback.py` の集計対象メトリクスに含まれていないため、出力されない。
+2. **出力の欠損**: `PLDM_hieral/run_tworooms_compare_feedback.py` の集計対象メトリクスに含まれていないため、出力されない。また、`success_rate` も同様に除外されていることが判明。
 
 ## ユーザーレビューが必要な事項
 > [!IMPORTANT]
@@ -17,7 +17,7 @@
 
 ### PLDM_hieral
 #### [MODIFY] [run_tworooms_compare_feedback.py](file:///home/owner/devws/cuda/WM-JEPA/PLDM_hieral/run_tworooms_compare_feedback.py)
-- `METRICS` リストに `efficiency_score` と `first_crossing_steps` を追加します。
+- `METRICS` リストに `efficiency_score`、`first_crossing_steps`、**`success_rate`** を追加します。
 
 ## 検証計画
 ### 自動テスト
@@ -31,7 +31,7 @@
       --mode both \
       --epochs 5
   ```
-- CSVファイルおよびコンソール出力に `efficiency_score` と `first_crossing_steps` が存在することを確認します。
+- CSVファイルおよびコンソール出力に `efficiency_score`、`first_crossing_steps`、`success_rate` が存在することを確認します。
 
 ### 手動検証
 - 出力された `first_crossing_steps` が妥当な値（>= 1）であることを確認します。

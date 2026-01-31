@@ -5,6 +5,7 @@
     - [x] output欠損の原因特定 (`METRICS`リストへの未追加) <!-- id: 2 -->
 - [x] 修正の実施 <!-- id: 3 -->
     - [x] `pldm/planning/wall/mpc.py` の `first_crossing_steps` 計算修正 <!-- id: 4 -->
-    - [x] `PLDM_hieral/run_tworooms_compare_feedback.py` の `METRICS` リスト更新 <!-- id: 5 -->
+    - [x] `PLDM_hieral/run_tworooms_compare_feedback.py` の `METRICS` リスト更新 (`efficiency`, `first_crossing`) <!-- id: 5 -->
+    - [x] `success_rate` の `METRICS` 追加 <!-- id: 8 -->
 - [ ] 検証 <!-- id: 6 -->
-    - [ ] 学習スクリプトの実行と指標出力の確認 <!-- id: 7 -->
+    - [/] 学習スクリプトの実行と指標出力の確認 <!-- id: 7 -->

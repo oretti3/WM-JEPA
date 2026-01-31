@@ -15,7 +15,7 @@ if str(REPO_ROOT) not in sys.path:
 from pldm.utils import pick_latest_model
 
 
-METRICS = ["planning_error_mean", "cross_wall_rate", "init_plan_cross_wall_rate", "efficiency_score", "first_crossing_steps"]
+METRICS = ["planning_error_mean", "cross_wall_rate", "init_plan_cross_wall_rate", "efficiency_score", "first_crossing_steps", "success_rate"]
 
 
 def _resolve_path(repo_root: Path, path_str: str) -> Path:
