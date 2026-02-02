@@ -11,7 +11,7 @@ data:
   offline_wall_config:
     n_steps: *n_steps
     use_offline: true
-    offline_data_path: "pldm_envs/wall/presaved_datasets/rendered/ds_size_5078.npz"
+    offline_data_path: "/content/drive/MyDrive/PLDM_npz/wall/presaved_datasets/good_quality_data.npz"
     lazy_load: false
     batch_size: 64
     device: cuda
@@ -62,7 +62,7 @@ eval_only: false
 save_every_n_epochs: 30
 eval_every_n_epochs: 30
 hjepa:
-  hierarchy_type: feedback
+  hierarchy_type: tdmpc
   train_l1: true
   freeze_l1: false
   disable_l2: false
@@ -70,12 +70,7 @@ hjepa:
   l2_use_actions: true
   l2_action_agg: concat
   step_skip: 4
-  l2_backbone:
-    arch: mlp
-    backbone_subclass: "512"
-    backbone_norm: layer_norm
-    backbone_final_fc: true
-    final_ln: true
+  l2_backbone: null
   level1:
     backbone:
       arch: impala
@@ -131,7 +126,7 @@ objectives_l2:
   prediction:
     global_coeff: 1.0
 optimizer_type: Adam
-output_dir: tworooms_feedback
+output_dir: tworooms_tdmpc
 output_root: PLDM_hieral/outputs
 eval_cfg:
   env_name: *env_name
@@ -193,7 +188,7 @@ eval_cfg:
     sample_timesteps: 30
 quick_debug: false
 verbose: false
-run_name: tworooms_feedback
-run_project: HJEPA-feedback-tworooms
+run_name: tworooms_tdmpc
+run_project: HJEPA-tdmpc-tworooms
 seed: 101
 wandb: false

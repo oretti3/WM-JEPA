@@ -36,6 +36,7 @@ from pldm.evaluation.evaluator import EvalConfig, Evaluator
 
 from pldm.models.hjepa import HJEPA, HJEPAConfig
 from pldm.models.hjepa_feedback import HJEPAFeedback
+from pldm.models.hjepa_tdmpc import HJEPATDMPC
 
 from pldm.objectives import ObjectivesConfig
 import pldm.utils as utils
@@ -281,6 +282,14 @@ class Trainer:
                 use_propio_pos=use_propio_pos,
                 use_propio_vel=use_propio_vel,
             )
+        elif config.hjepa.hierarchy_type == "tdmpc":
+            self.model = HJEPATDMPC(
+                config.hjepa,
+                input_dim=input_dim,
+                normalizer=self.ds.normalizer,
+                use_propio_pos=use_propio_pos,
+                use_propio_vel=use_propio_vel,
+            )
         else:
             self.model = HJEPA(
                 config.hjepa,
@@ -438,13 +447,32 @@ class Trainer:
         )
 
         first_step = None
+        log_every_pct_env = os.getenv("PLDM_LOG_EVERY_PCT")
+        log_every_pct = None
+        if log_every_pct_env:
+            try:
+                log_every_pct = float(log_every_pct_env)
+            except ValueError:
+                log_every_pct = None
+        use_pct_logging = log_every_pct is not None and log_every_pct > 0
+        run_start_step = self.epoch * len(self.ds)
+        run_steps = len(self.ds) * (self.config.epochs - self.epoch + 1)
+        run_steps = max(run_steps, 1)
+        run_end_step = run_start_step + run_steps - 1
+        next_log_pct = log_every_pct if use_pct_logging else None
+        disable_batch_tqdm = use_pct_logging and not self.config.quick_debug
+        disable_epoch_tqdm = disable_batch_tqdm
 
         # 学習前評価
         if self.config.eval_at_beginning and not self.config.quick_debug:
             self.validate()
 
         # メイン学習ループ
-        for epoch in tqdm(range(self.epoch, self.config.epochs + 1), desc="Epoch"):
+        for epoch in tqdm(
+            range(self.epoch, self.config.epochs + 1),
+            desc="Epoch",
+            disable=disable_epoch_tqdm,
+        ):
             self.epoch = epoch
             end_time = time.time()
             for step, batch in (
@@ -453,6 +481,7 @@ class Trainer:
                     desc="Batch",
                     total=len(self.ds),
                     maxinterval=10,
+                    disable=disable_batch_tqdm,
                 )
             ):
                 if first_step is None:
@@ -546,6 +575,16 @@ class Trainer:
 
                     if step - first_step == 5:
                         return
+
+                if use_pct_logging and not self.config.quick_debug:
+                    progress_pct = ((step - run_start_step + 1) / run_steps) * 100
+                    if progress_pct >= next_log_pct or step == run_end_step:
+                        pct_int = int(min(100, progress_pct))
+                        self._print(
+                            f"Progress: {pct_int}% (epoch {epoch}/{self.config.epochs})",
+                            force=True,
+                        )
+                        next_log_pct += log_every_pct
 
                 self.metric_tracker.update("log_time", time.time() - log_start_time)
                 end_time = time.time()
