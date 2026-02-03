@@ -1,6 +1,7 @@
-n_steps: 16
-val_n_steps: 16
-env_name: wall
+n_steps: &n_steps 16
+val_n_steps: *n_steps
+env_name: &env_name wall
+
 base_lr: 0.003
 data:
   normalize: true
@@ -8,9 +9,9 @@ data:
   verbose: false
   dataset_type: DatasetType.Wall
   offline_wall_config:
-    n_steps: 16
+    n_steps: *n_steps
     use_offline: true
-    offline_data_path: pldm_envs/wall/presaved_datasets/rendered/ds_size_1500K.npz
+    offline_data_path: "pldm_envs/wall/presaved_datasets/random_trajectories_5078.npz"
     lazy_load: false
     batch_size: 64
     device: cuda
@@ -34,10 +35,10 @@ data:
     fix_wall: true
     fix_door_location: 10
     fix_wall_location: 32
-    exclude_wall_train: ''
-    exclude_door_train: ''
-    only_wall_val: ''
-    only_door_val: ''
+    exclude_wall_train: ""
+    exclude_door_train: ""
+    only_wall_val: ""
+    only_door_val: ""
     wall_padding: 20
     door_padding: 10
     wall_width: 3
@@ -47,13 +48,13 @@ data:
     expert_cross_wall_rate: 0
     img_size: 65
     max_step: 1
-    n_steps: 16
+    n_steps: *n_steps
     n_steps_reduce_factor: 1
     size: 20000
     val_size: 10000
     train: true
     repeat_actions: 1
-epochs: 1
+epochs: 600
 eval_at_beginning: false
 eval_during_training: false
 eval_mpcs: 100
@@ -61,20 +62,20 @@ eval_only: false
 save_every_n_epochs: 30
 eval_every_n_epochs: 30
 hjepa:
+  hierarchy_type: feedback
   train_l1: true
   freeze_l1: false
   disable_l2: false
-  l1_n_steps: 16
-  l2_z_dim: 32
-  l2_min_var: 0.1
-  l2_use_action_only: false
-  l2_posterior_arch: 512-512
-  l2_decoder_arch: 512-512
+  l1_n_steps: *n_steps
   l2_use_actions: true
   l2_action_agg: concat
-  l2_condition_l1: false
-  l2_subgoal: true
-  l2_subgoal_coeff: 1.0
+  step_skip: 4
+  l2_backbone:
+    arch: mlp
+    backbone_subclass: "512"
+    backbone_norm: layer_norm
+    backbone_final_fc: true
+    final_ln: true
   level1:
     backbone:
       arch: impala
@@ -87,10 +88,9 @@ hjepa:
       channels: 2
       input_dim: null
       final_ln: true
-      fc_output_dim: 1024
     predictor:
       predictor_arch: rnnV2
-      predictor_subclass: 512-512
+      predictor_subclass: "512-512"
       rnn_layers: 1
       z_dim: 0
       z_min_std: 0.1
@@ -99,7 +99,6 @@ hjepa:
       tie_backbone_ln: true
     action_dim: 2
     momentum: 0
-  step_skip: 4
 load_checkpoint_path: null
 load_l1_only: false
 objectives_l1:
@@ -123,37 +122,34 @@ objectives_l1:
   idm:
     coeff: 2
     action_dim: 2
-    arch: '512'
+    arch: "512"
     arch_subclass: a
     use_pred: false
 objectives_l2:
   objectives:
   - Prediction
-  - RSSMKL
   prediction:
     global_coeff: 1.0
-  rssm_kl:
-    coeff: 1.0
 optimizer_type: Adam
-output_dir: tworooms_l2_6m_h24
+output_dir: tworooms_feedback
 output_root: PLDM_hieral/outputs
 eval_cfg:
-  env_name: wall
+  env_name: *env_name
   log_heatmap: false
   wall_planning:
-    set_start_target_path: PLDM_hieral/wall_trials_eval.npz
-    n_envs: 100
+    set_start_target_path: "PLDM_hieral/wall_trials_eval.npz"
+    n_envs: 20
     seed: 42
-    levels: medium
+    levels: "medium"
     easy:
       n_steps: 50
-      n_envs: 100
-      max_plan_length: 24
+      n_envs: 20
+      max_plan_length: 96
       override_config: true
     medium:
       n_steps: 200
-      n_envs: 100
-      max_plan_length: 24
+      n_envs: 20
+      max_plan_length: 96
       override_config: true
     n_envs_batch_size: 20
     sample_y_min: 32
@@ -168,7 +164,7 @@ eval_cfg:
       loss_coeff_first: 0.1
       loss_coeff_last: 1
       sum_all_diffs: false
-      max_plan_length: 24
+      max_plan_length: 96
       sgd:
         lr: 0.3
         n_iters: 900
@@ -189,15 +185,15 @@ eval_cfg:
     epochs_enc: 30
     full_finetune: false
     lr: 0.0002
-    probe_targets: locations
+    probe_targets: "locations"
     locations:
-      arch: '512'
+      arch: "512"
     schedule: Constant
-    l1_depth: 16
+    l1_depth: *n_steps
     sample_timesteps: 30
 quick_debug: false
 verbose: false
-run_name: tworooms_l2_6m_h24
-run_project: HJEPA-tworooms
+run_name: tworooms_feedback
+run_project: HJEPA-feedback-tworooms
 seed: 101
 wandb: false
