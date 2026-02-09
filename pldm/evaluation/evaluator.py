@@ -163,6 +163,11 @@ class Evaluator:
             and getattr(self.model.config, "l2_condition_l1", False)
         ):
             l1_model = self.model.level1_conditioned
+        elif (
+            getattr(self.model, "level1_hierarchical", None) is not None
+            and not getattr(self.model.config, "disable_l2", True)
+        ):
+            l1_model = self.model.level1_hierarchical
 
         if "diverse" in self.config.env_name or "maze2d" in self.config.env_name:
             from pldm.planning.d4rl.mpc import MazeMPCEvaluator
