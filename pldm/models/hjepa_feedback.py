@@ -17,6 +17,147 @@ class ForwardResult(NamedTuple):
     level2: Optional[JEPAForwardResult] = None
 
 
+class _HierarchicalPredictorProxy:
+    """
+    Expose a JEPA-like predictor API while delegating rollouts to HJEPAFeedback.
+    Used by MPPI/SGD planners that call model.predictor.forward_multiple.
+    """
+
+    def __init__(self, hjepa: "HJEPAFeedback"):
+        self._hjepa = hjepa
+        self._predictor = hjepa.level1.predictor
+        self.action_dim = self._predictor.action_dim
+
+    @property
+    def training(self):
+        return self._predictor.training
+
+    def train(self, mode: bool = True):
+        self._predictor.train(mode)
+        if self._hjepa.l2_predictor is not None:
+            self._hjepa.l2_predictor.train(mode)
+        return self
+
+    def forward_multiple(
+        self,
+        state_encs: torch.Tensor,
+        actions: Optional[torch.Tensor],
+        T: int,
+        latents: Optional[torch.Tensor] = None,
+        flatten_output: bool = False,
+        compute_posterior: bool = False,
+    ):
+        if compute_posterior:
+            raise NotImplementedError(
+                "Hierarchical predictor proxy only supports prior rollout"
+            )
+
+        if state_encs.dim() >= 3:
+            has_time_dim = (
+                state_encs.shape[0] == 1
+                or (
+                    actions is not None
+                    and state_encs.shape[0]
+                    in (actions.shape[0], actions.shape[0] + 1)
+                )
+            )
+            input_states = state_encs[0] if has_time_dim else state_encs
+        elif state_encs.dim() == 2:
+            input_states = state_encs
+        else:
+            raise ValueError(f"Unexpected state_encs shape: {tuple(state_encs.shape)}")
+
+        result = self._hjepa.forward_prior(
+            input_states=input_states,
+            actions=actions,
+            T=T,
+            repr_input=True,
+            latents=latents,
+            level="l1",
+        )
+        pred_output = result.level1.pred_output
+        if pred_output is None:
+            raise RuntimeError("Hierarchical forward_prior returned no pred_output")
+
+        if not flatten_output:
+            return pred_output
+
+        predictions = flatten_conv_output(pred_output.predictions)
+        obs_component = (
+            None
+            if pred_output.obs_component is None
+            else flatten_conv_output(pred_output.obs_component)
+        )
+        propio_component = (
+            None
+            if pred_output.propio_component is None
+            else flatten_conv_output(pred_output.propio_component)
+        )
+        return PredictorOutput(
+            predictions=predictions,
+            obs_component=obs_component,
+            propio_component=propio_component,
+            prior_mus=pred_output.prior_mus,
+            prior_vars=pred_output.prior_vars,
+            prior_logits=pred_output.prior_logits,
+            priors=pred_output.priors,
+            posterior_mus=pred_output.posterior_mus,
+            posterior_vars=pred_output.posterior_vars,
+            posterior_logits=pred_output.posterior_logits,
+            posteriors=pred_output.posteriors,
+        )
+
+    def __getattr__(self, name):
+        return getattr(self._predictor, name)
+
+
+class _HierarchicalL1Wrapper:
+    """
+    JEPA-compatible facade for planners. Uses hierarchical prior under the hood
+    but preserves the interface expected by existing planning code.
+    """
+
+    def __init__(self, hjepa: "HJEPAFeedback"):
+        self._hier_model = hjepa
+        self._level1 = hjepa.level1
+        self.config = self._level1.config
+        self.backbone = self._level1.backbone
+        self.predictor = _HierarchicalPredictorProxy(hjepa)
+        self.spatial_repr_dim = self._level1.spatial_repr_dim
+        self.use_propio_pos = self._level1.use_propio_pos
+        self.use_propio_vel = self._level1.use_propio_vel
+
+    def forward_prior(self, *args, **kwargs):
+        kwargs.pop("level", None)
+        return self._hier_model.forward_prior(*args, **kwargs, level="l1").level1
+
+    def forward_posterior(self, *args, **kwargs):
+        return self._hier_model.forward_posterior(*args, **kwargs).level1
+
+    def update_ema(self):
+        self._hier_model.update_ema()
+
+    def parameters(self, recurse: bool = True):
+        return self._hier_model.parameters(recurse=recurse)
+
+    def train(self, mode: bool = True):
+        self._hier_model.train(mode)
+        return self
+
+    def eval(self):
+        return self.train(False)
+
+    def to(self, *args, **kwargs):
+        self._hier_model.to(*args, **kwargs)
+        return self
+
+    def cuda(self, *args, **kwargs):
+        return self.to(*args, **kwargs)
+
+    def __getattr__(self, name):
+        return getattr(self._level1, name)
+
+
 class HJEPAFeedback(torch.nn.Module):
     """Hierarchical JEPA with cross-level feedback and slower L2 updates."""
 
@@ -43,8 +184,8 @@ class HJEPAFeedback(torch.nn.Module):
         self.l2_predictor = None
         self.l2_repr_dim = None
         self.l2_backbone_config = None
-        self.l1_to_l2 = None
         self.l2_to_l1 = None
+        self.level1_hierarchical = None
 
         if not self.config.disable_l2:
             if self.config.l2_action_agg != "concat":
@@ -106,11 +247,11 @@ class HJEPAFeedback(torch.nn.Module):
             )
 
             if l1_repr_dim != self.l2_repr_dim:
-                self.l1_to_l2 = torch.nn.Linear(l1_repr_dim, self.l2_repr_dim)
                 self.l2_to_l1 = torch.nn.Linear(self.l2_repr_dim, l1_repr_dim)
             else:
-                self.l1_to_l2 = torch.nn.Identity()
                 self.l2_to_l1 = torch.nn.Identity()
+
+            self.level1_hierarchical = _HierarchicalL1Wrapper(self)
 
     def _build_propio_states(self, propio_pos, propio_vel):
         if propio_pos is None or propio_vel is None:
@@ -141,23 +282,6 @@ class HJEPAFeedback(torch.nn.Module):
             action_chunks.append(chunk)
         return torch.stack(action_chunks, dim=0)
 
-    def _build_l2_inputs(self, l1_encs_flat: torch.Tensor):
-        step_skip = max(1, self.config.step_skip)
-        max_steps = (l1_encs_flat.shape[0] - 1) // step_skip
-        if max_steps < 1:
-            raise ValueError("Not enough steps for L2 rollout")
-        l2_inputs = []
-        for i in range(max_steps + 1):
-            start = i * step_skip
-            end = min(start + step_skip, l1_encs_flat.shape[0])
-            chunk = l1_encs_flat[start:end]
-            if chunk.shape[0] < step_skip:
-                pad = chunk[-1:].repeat(step_skip - chunk.shape[0], 1, 1)
-                chunk = torch.cat([chunk, pad], dim=0)
-            chunk = chunk.permute(1, 0, 2).reshape(l1_encs_flat.shape[1], -1)
-            l2_inputs.append(chunk)
-        return torch.stack(l2_inputs, dim=0)
-
     def _predict_next(self, predictor, current_state, action, rnn_state):
         if hasattr(predictor, "_is_rnn") and predictor._is_rnn():
             if rnn_state is None:
@@ -170,6 +294,133 @@ class HJEPAFeedback(torch.nn.Module):
             return next_state, next_hidden_state
         return predictor.forward(current_state, action), None
 
+    def _rollout(self, l1_init: torch.Tensor, actions: torch.Tensor, T: int):
+        """posterior / prior 共通のオートレグレッシブロールアウト。
+
+        Args:
+            l1_init: 初期 L1 状態 (B, D)。backbone encoding of first observation。
+            actions: (T, B, A)。
+            T: 予測ステップ数。
+
+        Returns:
+            l1_preds: List[Tensor]。長さ T+1。[l1_init, pred_1, pred_2, ...]
+            l2_encs:  List[Tensor]。L2 backbone 出力（L2 損失のターゲット）
+            l2_preds: List[Tensor]。L2 predictor 出力（L2 損失の予測）
+            l2_actions: Tensor or None。L2 用にチャンクしたアクション
+        """
+        step_skip = max(1, self.config.step_skip)
+        l1_state = l1_init
+        l1_preds = [l1_state]
+        l1_history = [l1_state]
+        l1_rnn_state = None
+
+        # L2 初期化
+        l2_feedback = torch.zeros_like(l1_init)
+        l2_prev = None
+        l2_encs = []
+        l2_preds = []
+        l2_rnn_state = None
+        l2_actions = None
+        l2_step_idx = 0
+        l2_steps = 0
+
+        if not self.config.disable_l2:
+            l2_steps = T // step_skip
+            if l2_steps > 0 and self.config.l2_use_actions:
+                l2_actions = self._build_l2_actions(actions, l2_steps)
+
+        for t in range(T):
+            l1_input = l1_state + l2_feedback
+
+            # RNN の場合、l2_feedback を hidden state に注入
+            # MLP: forward(l1_state + l2_feedback, action) → 入力に含まれる
+            # RNN: forward(rnn_state, action) → hidden state に加算して注入
+            if (
+                l1_rnn_state is not None
+                and torch.is_tensor(l2_feedback)
+                and l2_feedback.any()
+            ):
+                l1_rnn_state = l1_rnn_state + l2_feedback.unsqueeze(0)
+
+            l1_next, l1_rnn_state = self._predict_next(
+                self.level1.predictor, l1_input, actions[t], l1_rnn_state
+            )
+            l1_state = l1_next
+            l1_preds.append(l1_next)
+            l1_history.append(l1_next)
+
+            # L2: step_skip 個の L1 予測が溜まったら L2 backbone + L2 predictor
+            if not self.config.disable_l2 and (t + 1) % step_skip == 0:
+                window = torch.stack(l1_history[-step_skip:], dim=0)
+                l2_raw = window.permute(1, 0, 2).reshape(l1_init.shape[0], -1)
+                l2_enc = self.l2_backbone.forward_multiple(
+                    l2_raw.unsqueeze(0)
+                ).encodings[0]
+                l2_enc = flatten_conv_output(l2_enc)
+                l2_encs.append(l2_enc)
+
+                if l2_prev is None:
+                    l2_prev = l2_enc
+                    l2_preds.append(l2_enc)
+
+                if l2_actions is not None and l2_step_idx < l2_steps:
+                    l2_pred_input = l2_prev + l2_enc
+                    l2_next, l2_rnn_state = self._predict_next(
+                        self.l2_predictor,
+                        l2_pred_input,
+                        l2_actions[l2_step_idx],
+                        l2_rnn_state,
+                    )
+                    l2_preds.append(l2_next)
+                    l2_prev = l2_next
+                    l2_feedback = self.l2_to_l1(l2_next)
+                    l2_step_idx += 1
+
+        return l1_preds, l2_encs, l2_preds, l2_actions
+
+    def _encode_l1_prior(
+        self,
+        input_states: torch.Tensor,
+        repr_input: bool,
+        propio_pos: Optional[torch.Tensor],
+        propio_vel: Optional[torch.Tensor],
+    ):
+        if repr_input:
+            l1_state = input_states
+        else:
+            if self.level1.config.backbone.propio_dim is not None:
+                propio_states = self._build_propio_states(propio_pos, propio_vel)
+                l1_state = self.level1.backbone.forward_multiple(
+                    input_states, propio=propio_states
+                ).encodings
+            else:
+                l1_state = self.level1.backbone.forward_multiple(
+                    input_states
+                ).encodings
+
+        l1_state = flatten_conv_output(l1_state)
+        if l1_state.dim() == 3:
+            l1_state = l1_state[0]
+        if l1_state.dim() != 2:
+            raise ValueError(
+                f"Expected (B, D) L1 prior state, got {tuple(l1_state.shape)}"
+            )
+        return l1_state
+
+    def _split_obs_and_propio(self, predictions: torch.Tensor, pred_propio_dim):
+        if pred_propio_dim:
+            if isinstance(pred_propio_dim, int):
+                obs_component = predictions[:, :, :-pred_propio_dim]
+                propio_component = predictions[:, :, -pred_propio_dim:]
+            else:
+                pred_propio_channels = pred_propio_dim[0]
+                obs_component = predictions[:, :, :-pred_propio_channels]
+                propio_component = predictions[:, :, -pred_propio_channels:]
+        else:
+            obs_component = predictions
+            propio_component = None
+        return obs_component, propio_component
+
     def forward_posterior(
         self,
         input_states: torch.Tensor,
@@ -181,6 +432,7 @@ class HJEPAFeedback(torch.nn.Module):
         chunked_propio_vel: Optional[torch.Tensor] = None,
         goal: Optional[torch.Tensor] = None,
     ) -> ForwardResult:
+        # GT encodings（損失ターゲット用のみ）
         if self.level1.config.backbone.propio_dim is not None:
             propio_states = self._build_propio_states(propio_pos, propio_vel)
             l1_backbone_output = self.level1.backbone.forward_multiple(
@@ -190,134 +442,39 @@ class HJEPAFeedback(torch.nn.Module):
             l1_backbone_output = self.level1.backbone.forward_multiple(input_states)
 
         l1_encs = flatten_conv_output(l1_backbone_output.encodings)
-        if l1_encs.dim() == 3:
-            l1_encs = l1_encs
-        else:
-            raise ValueError("Feedback hierarchy expects flat L1 encodings")
 
-        ema_backbone_output = None
-        if self.level1.backbone_ema is not None:
-            if self.level1.config.backbone.propio_dim is not None:
-                propio_states = self._build_propio_states(propio_pos, propio_vel)
-                ema_backbone_output = self.level1.backbone_ema.forward_multiple(
-                    input_states, propio=propio_states
-                )
-            else:
-                ema_backbone_output = self.level1.backbone_ema.forward_multiple(
-                    input_states
-                )
+        # 共通ロールアウト（prior と完全に同じ計算グラフ）
+        T = input_states.shape[0] - 1
+        l1_preds, l2_encs, l2_preds, l2_actions = self._rollout(
+            l1_encs[0], actions, T
+        )
 
-        l2_backbone_output = None
-        l2_preds = None
-        l2_actions = None
-        l2_encs_aug = None
-
-        l2_prev = None
-        l2_rnn_state = None
-        if not self.config.disable_l2:
-            l2_inputs = self._build_l2_inputs(l1_encs)
-            l2_backbone_output = self.l2_backbone.forward_multiple(l2_inputs)
-            l2_encs = flatten_conv_output(l2_backbone_output.encodings)
-
-            num_l2_steps = l2_encs.shape[0] - 1
-            if self.config.l2_use_actions:
-                l2_actions = self._build_l2_actions(actions, num_l2_steps)
-
-            l2_prev = torch.zeros_like(l2_encs[0])
-            l2_preds = []
-            l2_encs_aug = []
-
-        l1_prev = torch.zeros_like(l1_encs[0])
-        l1_rnn_state = None
-        l1_preds = []
-        l1_encs_aug = []
-        feedback_terms = []
-
-        l2_index = 0
-        for t in range(l1_encs.shape[0]):
-            if l2_prev is not None:
-                l2_feedback = self.l2_to_l1(l2_prev)
-            else:
-                l2_feedback = 0.0
-
-            l1_input = l1_encs[t] + l1_prev + l2_feedback
-            l1_encs_aug.append(l1_input)
-            feedback_terms.append(l1_prev + l2_feedback)
-
-            if t == 0:
-                l1_preds.append(l1_input)
-
-            if (
-                l2_prev is not None
-                and t % max(1, self.config.step_skip) == 0
-                and l2_index < l2_encs.shape[0]
-            ):
-                l2_input = (
-                    l2_encs[l2_index]
-                    + l2_prev
-                    + self.l1_to_l2(l1_prev)
-                )
-                l2_encs_aug.append(l2_input)
-                if l2_index == 0:
-                    l2_preds.append(l2_input)
-                if l2_index < l2_encs.shape[0] - 1:
-                    if l2_actions is None:
-                        raise ValueError("l2_use_actions=False is unsupported here")
-                    l2_next, l2_rnn_state = self._predict_next(
-                        self.l2_predictor,
-                        l2_input,
-                        l2_actions[l2_index],
-                        l2_rnn_state,
-                    )
-                    l2_preds.append(l2_next)
-                    l2_prev = l2_next
-                l2_index += 1
-
-            if t < l1_encs.shape[0] - 1:
-                if actions is None:
-                    raise ValueError("actions are required for L1 rollout")
-                l1_next, l1_rnn_state = self._predict_next(
-                    self.level1.predictor,
-                    l1_input,
-                    actions[t],
-                    l1_rnn_state,
-                )
-                l1_preds.append(l1_next)
-                l1_prev = l1_next
-
-        l1_encs_aug = torch.stack(l1_encs_aug, dim=0)
-        l1_preds = torch.stack(l1_preds, dim=0)
-
-        if ema_backbone_output is not None:
-            ema_encs = flatten_conv_output(ema_backbone_output.encodings)
-            ema_aug = []
-            for t in range(ema_encs.shape[0]):
-                ema_aug.append(ema_encs[t] + feedback_terms[t])
-            ema_backbone_output = BackboneOutput(encodings=torch.stack(ema_aug, dim=0))
-
-        l1_backbone_output = BackboneOutput(encodings=l1_encs_aug)
-        l1_pred_output = PredictorOutput(predictions=l1_preds)
-        forward_result_l1 = JEPAForwardResult(
-            backbone_output=l1_backbone_output,
-            ema_backbone_output=ema_backbone_output,
-            pred_output=l1_pred_output,
+        # L1 結果パッケージ（backbone_output は素の GT encodings）
+        l1_result = JEPAForwardResult(
+            backbone_output=BackboneOutput(encodings=l1_encs),
+            ema_backbone_output=None,
+            pred_output=PredictorOutput(predictions=torch.stack(l1_preds)),
             actions=actions,
         )
 
-        forward_result_l2 = None
-        if l2_preds is not None and l2_encs_aug is not None:
-            l2_encs_aug = torch.stack(l2_encs_aug, dim=0)
-            l2_preds = torch.stack(l2_preds, dim=0)
-            l2_backbone_output = BackboneOutput(encodings=l2_encs_aug)
-            l2_pred_output = PredictorOutput(predictions=l2_preds)
-            forward_result_l2 = JEPAForwardResult(
-                backbone_output=l2_backbone_output,
+        # L2 結果パッケージ
+        # _rollout は N 個の l2_encs, N+1 個の l2_preds を返す。
+        # l2_preds[:N] に切り詰める（最後の予測にターゲットがないため）。
+        l2_result = None
+        if l2_encs:
+            n = len(l2_encs)
+            l2_result = JEPAForwardResult(
+                backbone_output=BackboneOutput(
+                    encodings=torch.stack(l2_encs)
+                ),
                 ema_backbone_output=None,
-                pred_output=l2_pred_output,
+                pred_output=PredictorOutput(
+                    predictions=torch.stack(l2_preds[:n])
+                ),
                 actions=l2_actions,
             )
 
-        return ForwardResult(level1=forward_result_l1, level2=forward_result_l2)
+        return ForwardResult(level1=l1_result, level2=l2_result)
 
     def forward_prior(
         self,
@@ -332,19 +489,101 @@ class HJEPAFeedback(torch.nn.Module):
         goal: Optional[torch.Tensor] = None,
         level: str = "l1",
     ) -> ForwardResult:
-        if level != "l1":
-            raise ValueError("Feedback hierarchy only supports level='l1' prior")
-        result = self.level1.forward_prior(
+        if level not in ("l1", "l2"):
+            raise ValueError(f"Unknown level: {level}")
+
+        if level == "l2" and self.config.disable_l2:
+            raise RuntimeError("L2 is disabled")
+
+        # Latent-action shortcut: delegate to L1 only
+        if latents is not None:
+            if level == "l2":
+                raise NotImplementedError(
+                    "level='l2' with latents is unsupported"
+                )
+            result = self.level1.forward_prior(
+                input_states=input_states,
+                actions=actions,
+                T=T,
+                repr_input=repr_input,
+                propio_pos=propio_pos,
+                propio_vel=propio_vel,
+                latents=latents,
+                goal=goal,
+            )
+            return ForwardResult(level1=result, level2=None)
+
+        # Determine rollout horizon
+        if T is None:
+            if actions is None:
+                raise ValueError("T is None but actions are not provided")
+            T = actions.shape[0]
+
+        if T < 0:
+            raise ValueError("T must be non-negative")
+        if T > 0 and actions is None:
+            raise ValueError(
+                "actions are required for prior rollout when T > 0"
+            )
+
+        actions_rollout = actions
+        if actions_rollout is not None:
+            if actions_rollout.shape[0] < T:
+                raise ValueError(
+                    "Not enough actions for requested rollout horizon"
+                )
+            actions_rollout = actions_rollout[:T]
+
+        # 初期状態エンコード
+        l1_init = self._encode_l1_prior(
             input_states=input_states,
-            actions=actions,
-            T=T,
             repr_input=repr_input,
             propio_pos=propio_pos,
             propio_vel=propio_vel,
-            latents=latents,
-            goal=goal,
         )
-        return ForwardResult(level1=result, level2=None)
+
+        # 共通ロールアウト（posterior と同じ計算グラフ）
+        l1_preds, l2_encs, l2_preds, l2_actions = self._rollout(
+            l1_init, actions_rollout, T
+        )
+
+        # L1 結果パッケージ
+        l1_preds_t = torch.stack(l1_preds)
+        l1_obs, l1_propio = self._split_obs_and_propio(
+            l1_preds_t, self.level1.predictor.pred_propio_dim
+        )
+        l1_result = JEPAForwardResult(
+            backbone_output=None,
+            ema_backbone_output=None,
+            pred_output=PredictorOutput(
+                predictions=l1_preds_t,
+                obs_component=l1_obs,
+                propio_component=l1_propio,
+            ),
+            actions=actions_rollout,
+        )
+
+        # L2 結果パッケージ
+        l2_result = None
+        if l2_preds:
+            l2_preds_t = torch.stack(l2_preds)
+            l2_obs, l2_propio = self._split_obs_and_propio(
+                l2_preds_t, self.l2_predictor.pred_propio_dim
+            )
+            l2_result = JEPAForwardResult(
+                backbone_output=None,
+                ema_backbone_output=None,
+                pred_output=PredictorOutput(
+                    predictions=l2_preds_t,
+                    obs_component=l2_obs,
+                    propio_component=l2_propio,
+                ),
+                actions=l2_actions,
+            )
+
+        if level == "l2":
+            return ForwardResult(level1=None, level2=l2_result)
+        return ForwardResult(level1=l1_result, level2=l2_result)
 
     def update_ema(self):
         self.level1.update_ema()
