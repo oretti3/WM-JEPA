@@ -1,80 +1,56 @@
 # PLDM_hieral
 
-Minimal HJEPA L2 implementation and TwoRooms (wall) comparison workflow.
+H-JEPA (Hierarchical JEPA) の実験用スクリプト・設定ファイル群です。
+TwoRooms環境 (壁で仕切られた2部屋ナビゲーション) において、ベースライン (L1) と階層化モデル (Hieral) の性能比較を行います。
 
-## フォルダ構成（要点）
-- `PLDM_hieral/configs/`: TwoRooms実験設定（L1/L2）
-- `PLDM_hieral/run_tworooms_compare.py`: L1→L2の連続実行スクリプト
-- `PLDM_hieral/colab_run_(1).ipynb`: Colab実行手順
-- `PLDM_hieral/configs/tworooms_feedback.yaml`: フィードバック階層化の設定
-- `PLDM_hieral/run_tworooms_compare_feedback.py`: 非階層 vs フィードバック階層の比較
-- `PLDM_hieral/colab_run_feedback.ipynb`: Colab実行手順（フィードバック版）
-- `PLDM_hieral/colab_pack.sh`: Colab用のtar作成
-- `PLDM_hieral/wall_mediumlast_episode_level1.gif`: L1可視化（最後のエピソード）
-- `PLDM_hieral/wall_mediumlast_episode_level2.gif`: L2可視化（最後のエピソード）
-- `PLDM_hieral/tworooms_compare.csv`: L1/L2の比較結果
+## 実験スクリプト
 
-## 結果まとめ（TwoRooms / wall_medium）
-`PLDM_hieral/tworooms_compare.csv` の内容:
+| スクリプト | 用途 |
+|:---|:---|
+| `run_tworooms_compare.py` | L1 vs Hieral (サブゴール方式) の比較実験 |
+| `run_tworooms_compare_feedback.py` | L1 vs Hieral (フィードバック方式) の比較実験 |
+| `generate_wall_trials.py` | 評価用の固定スタート・ゴールエピソード生成 |
+| `verify_matched.py` | パラメータ数の検証 |
 
-| metric | L1 | L2 |
-| --- | ---: | ---: |
-| wall_mediumcross_wall_rate | 0.2199999988079071 | 0.07999999821186066 |
-| wall_mediuminit_plan_cross_wall_rate | 0.6100000143051147 | 0.6100000143051147 |
-| wall_mediumplanning_error_mean | 575.4636840820312 | 780.8388061523438 |
-| wall_mediumplanning_error_mean_rmse | 23.98882484436035 | 27.943492889404297 |
+## 設定ファイル (configs/)
 
-メモ:
-- `cross_wall_rate` / `init_plan_cross_wall_rate` は高いほど良い（反対側へ到達できた割合）
-- `planning_error_mean` / `rmse` は低いほど良い（ゴール誤差）
+| ファイル | 説明 |
+|:---|:---|
+| `tworooms_l1.yaml` | L1ベースライン |
+| `tworooms_l1_2m.yaml` | L1 (2Mパラメータ) |
+| `tworooms_l1_6m.yaml` | L1 (6Mパラメータ) |
+| `tworooms_l2.yaml` | L2 階層化 (サブゴール方式) |
+| `tworooms_l2_2m.yaml` | L2 (2Mパラメータ) |
+| `tworooms_feedback.yaml` | L2 階層化 (フィードバック方式) |
+| `tworooms_feedback_matched.yaml` | フィードバック (パラメータ数マッチ, 2.2M) |
+| `tworooms_feedback_matched_v2.yaml` | フィードバック (パラメータ数マッチ v2) |
 
-## 可視化（GIF）
-- L1: `wall_mediumlast_episode_level1.gif`  
-  ![L1 last episode](wall_mediumlast_episode_level1.gif)
-- L2: `wall_mediumlast_episode_level2.gif`  
-  ![L2 last episode](wall_mediumlast_episode_level2.gif)
-
-## Contents
-- `PLDM_hieral/configs/tworooms_l1.yaml`: L1-only baseline.
-- `PLDM_hieral/configs/tworooms_l2.yaml`: L2 training (L1 frozen).
-- `PLDM_hieral/run_tworooms_compare.py`: Run L1, then L2, and print a summary.
-- `PLDM_hieral/colab_pack.sh`: Create a tarball for Colab.
-- `PLDM_hieral/colab_run.ipynb`: Colab workflow.
-- `PLDM_hieral/configs/tworooms_feedback.yaml`: Feedback hierarchy config.
-- `PLDM_hieral/run_tworooms_compare_feedback.py`: Baseline vs feedback hierarchy comparison.
-- `PLDM_hieral/colab_run_feedback.ipynb`: Colab workflow (feedback hierarchy).
-
-## Dataset prep (TwoRooms)
-Run from the repo root:
+## 実行例
 
 ```bash
-bash -c "cd pldm_envs/wall && bash presaved_datasets/download_all.sh"
-bash -c "cd pldm_envs/wall && bash presaved_datasets/render_all.sh"
-```
-
-## Run locally
-
-```bash
+# サブゴール方式
 python PLDM_hieral/run_tworooms_compare.py --mode both
+
+# フィードバック方式
+python PLDM_hieral/run_tworooms_compare_feedback.py \
+  --config_l1 PLDM_hieral/configs/tworooms_l1.yaml \
+  --config_l2 PLDM_hieral/configs/tworooms_feedback.yaml \
+  --l2_from_scratch \
+  --mode both \
+  --epochs 6 \
+  --output_root ./PLDM_hieral/output_feedback_ep6
 ```
 
-Optional overrides:
+## Colab
 
 ```bash
-python PLDM_hieral/run_tworooms_compare.py --mode both --epochs 100 --seed 123 --output_root PLDM_hieral/outputs
+bash PLDM_hieral/colab_pack.sh            # サブゴール版
+bash PLDM_hieral/colab_pack_feedback.sh    # フィードバック版
 ```
 
-## Colab workflow
-1) Create a tarball:
+ノートブック: `colab_run_(1).ipynb`, `colab_run_feedback.ipynb`
 
-```bash
-bash PLDM_hieral/colab_pack.sh
-```
+## 可視化 (GIF)
 
-2) Upload the tarball to Colab and run `PLDM_hieral/colab_run_(1).ipynb`.
-
-## Outputs
-- L1 outputs: `PLDM_hieral/outputs/tworooms_l1`
-- L2 outputs: `PLDM_hieral/outputs/tworooms_l2`
-- Summaries: `summary.json` and `summary_epoch=*.json` in each output dir
-- Comparison CSV: `PLDM_hieral/tworooms_compare.csv`（デフォルト）。`--output_root` を指定した場合はその配下に保存されます。
+- L1: `wall_mediumlast_episode_level1.gif`
+- Hieral: `wall_mediumlast_episode_level2.gif`
