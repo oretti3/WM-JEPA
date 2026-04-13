@@ -11,7 +11,7 @@ data:
   offline_wall_config:
     n_steps: *n_steps
     use_offline: true
-    offline_data_path: "pldm_envs/wall/presaved_datasets/random_trajectories_5078.npz"
+    offline_data_path: "pldm_envs/wall/presaved_datasets/rendered/ds_size_634.npz"
     lazy_load: false
     batch_size: 64
     device: cuda
@@ -124,17 +124,17 @@ eval_cfg:
   log_heatmap: false
   wall_planning:
     set_start_target_path: "PLDM_hieral/wall_trials_eval.npz"
-    n_envs: 20
+    n_envs: 100
     seed: 42
     levels: "medium"
     easy:
       n_steps: 50
-      n_envs: 20
+      n_envs: 100
       max_plan_length: 96
       override_config: true
     medium:
       n_steps: 200
-      n_envs: 20
+      n_envs: 100
       max_plan_length: 96
       override_config: true
     n_envs_batch_size: 20
