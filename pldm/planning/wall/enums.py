@@ -20,6 +20,8 @@ class MPCReport(NamedTuple):
     errors: torch.Tensor
     terminations: list
     planning_time: int
+    efficiency_score: float
+    first_crossing_steps: float
     cross_wall_rate: float
     init_plan_cross_wall_rate: float
 
@@ -32,4 +34,6 @@ class MPCReport(NamedTuple):
             f"{prefix}init_plan_cross_wall_rate": self.init_plan_cross_wall_rate,
             f"{prefix}avg_termination_step": sum(self.terminations)
             / len(self.terminations),
+            f"{prefix}efficiency_score": self.efficiency_score,
+            f"{prefix}first_crossing_steps": self.first_crossing_steps,
         }

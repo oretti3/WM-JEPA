@@ -12,7 +12,7 @@ from torch.nn import functional as F
 from pldm.configs import ConfigBase
 from pldm.models.encoders.encoders import build_backbone
 from pldm.models.encoders.enums import BackboneConfig, BackboneOutput
-from pldm.models.enums import PredictorOutput
+from pldm.models.enums import PredictorConfig, PredictorOutput
 from pldm.models.jepa import JEPA, JEPAConfig, ForwardResult as JEPAForwardResult
 from pldm.models.misc import build_mlp
 from pldm.models.predictors import RSSMPredictor
@@ -23,12 +23,14 @@ from pldm.models.utils import flatten_conv_output
 class HJEPAConfig(ConfigBase):
     # L1(低レベル)とL2(高レベル)をまとめた設定
     level1: JEPAConfig = field(default_factory=JEPAConfig)
+    hierarchy_type: str = "rssm"
     step_skip: int = 4
     disable_l2: bool = False
     freeze_l1: bool = False
     train_l1: bool = False
     l1_n_steps: int = 17
     l2_backbone: Optional[BackboneConfig] = None
+    l2_predictor: Optional[PredictorConfig] = None
     l2_z_dim: int = 32
     l2_rnn_state_dim: Optional[int] = None
     l2_min_var: float = 0.1

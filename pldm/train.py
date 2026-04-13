@@ -35,6 +35,7 @@ from pldm.evaluation.evaluator import EvalConfig, Evaluator
 # if "AMD" not in torch.cuda.get_device_name(0):
 
 from pldm.models.hjepa import HJEPA, HJEPAConfig
+from pldm.models.hjepa_feedback import HJEPAFeedback
 
 from pldm.objectives import ObjectivesConfig
 import pldm.utils as utils
@@ -272,13 +273,22 @@ class Trainer:
         )
 
         # モデル構築
-        self.model = HJEPA(
-            config.hjepa,
-            input_dim=input_dim,
-            normalizer=self.ds.normalizer,
-            use_propio_pos=use_propio_pos,
-            use_propio_vel=use_propio_vel,
-        )
+        if config.hjepa.hierarchy_type == "feedback":
+            self.model = HJEPAFeedback(
+                config.hjepa,
+                input_dim=input_dim,
+                normalizer=self.ds.normalizer,
+                use_propio_pos=use_propio_pos,
+                use_propio_vel=use_propio_vel,
+            )
+        else:
+            self.model = HJEPA(
+                config.hjepa,
+                input_dim=input_dim,
+                normalizer=self.ds.normalizer,
+                use_propio_pos=use_propio_pos,
+                use_propio_vel=use_propio_vel,
+            )
 
         self.model = self.model.cuda()
 

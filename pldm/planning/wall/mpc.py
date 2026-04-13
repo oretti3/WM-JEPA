@@ -167,7 +167,7 @@ class WallMPCEvaluator(MPCEvaluator):
         Run various analytics on mpc result
         """
         config = self.config
-        locations = data.locations
+        locations = torch.stack(data.locations)
         targets = data.targets
         wall_locs = self.wall_locs
 
@@ -208,6 +208,63 @@ class WallMPCEvaluator(MPCEvaluator):
             wall_config=self.wall_config,
         )
 
+        # Calculate Efficiency Score
+        # 1. Determine actual first crossing step
+        # starts: (B, 2), wall_locs: (B,)
+        # locations: (T, B, 2)
+        batch_size = starts.shape[0]
+        T = locations.shape[0]
+        
+        # Determine start side relative to wall (True if left, False if right)
+        start_on_left = starts[:, 0] < wall_locs
+        
+        first_crossing_steps = torch.zeros(batch_size, device=locations.device)
+        crossed_mask = torch.zeros(batch_size, dtype=torch.bool, device=locations.device)
+
+        # Iterate through time steps to find first crossing
+        for t in range(T):
+            current_locs = locations[t] # (B, 2)
+            # Check if currently on the OTHER side
+            current_on_left = current_locs[:, 0] < wall_locs
+            
+            # crossed if side is different from start side
+            has_crossed = start_on_left != current_on_left
+            
+            # Update first crossing step for those who just crossed and haven't crossed before
+            just_crossed = has_crossed & (~crossed_mask)
+            first_crossing_steps[just_crossed] = t # 1-based index (step 0 is initial state, step 1 is after 1st action)
+            crossed_mask = crossed_mask | just_crossed
+
+        # 2. Calculate Minimal Steps (Theoretical)
+        # minimal path: Start -> Nearest point on Door Line -> Goal(Wall Opposite)
+        # Simplification: Distance from Start to Door Center + Wall Width
+        
+        # Get door locations
+        door_locs = torch.stack([e.hole_y for e in self.envs]).to(locations.device)
+        
+        # Distance to door (Euclidean)
+        # Door point: (wall_x, door_y)
+        door_points = torch.stack([wall_locs.to(locations.device), door_locs], dim=1)
+        dist_to_door = torch.norm(starts.to(locations.device) - door_points, dim=1)
+        
+        # Add half wall width to ensure we foster crossing
+        # dist_total = dist_to_door + self.wall_config.wall_width / 2.0
+        # Actually, just reaching the wall x-coordinate is the "crossing", but we use door center for "bottleneck"
+        min_dist = dist_to_door
+
+        max_step = self.wall_config.action_upper_bd
+        min_steps = min_dist / max_step
+        
+        # Efficiency = min_steps / actual_steps
+        # Only calculate for those who crossed
+        efficiency = torch.zeros(batch_size, device=locations.device)
+        efficiency[crossed_mask] = min_steps[crossed_mask] / first_crossing_steps[crossed_mask]
+        
+        # For those who didn't cross? Currently 0.
+        
+        avg_efficiency = efficiency.mean().item()
+        avg_first_crossing = first_crossing_steps[crossed_mask].float().mean().item() if crossed_mask.any() else 0.0
+
         report = MPCReport(
             error_mean=final_errors.mean(),
             errors=final_errors,
@@ -215,6 +272,8 @@ class WallMPCEvaluator(MPCEvaluator):
             planning_time=elapsed_time,
             cross_wall_rate=cross_wall_rate,
             init_plan_cross_wall_rate=init_plan_cross_wall_rate,
+            efficiency_score=avg_efficiency,
+            first_crossing_steps=avg_first_crossing,
         )
 
         return report
