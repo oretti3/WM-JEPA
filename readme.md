@@ -44,7 +44,7 @@ H-JEPAは低位 (Level-1; L1) での高速な表現遷移と、高位 (Level-2; 
 $$\tilde{z}_t^{(1)} = z_t^{(1)} + \hat{z}_t^{(1)} + b_t, \quad b_t = W_{2 \to 1} \, z_{\tau(t)}^{(2)}$$
 
 <div align="center">
-  <img src="assets/hjepa_architecture.jpg" alt="HJEPA architecture" width="720" />
+  <img src="assets/hjepa_architecture.jpg" alt="HJEPA architecture" />
   <p><em>図1: HJEPAの学習時アーキテクチャ。上段がL1（高頻度）、下段がL2（低頻度）。L2はk個のL1表現をconcatして集約し、L1の予測にフィードバックする。</em></p>
 </div>
 
@@ -90,7 +90,7 @@ $$ L_{HJEPA} = \sum_{\ell=1}^{L} \left( L_{sim}^{(\ell)} + \alpha_\ell L_{var}^{
 - **L1 (ベースライン)** は早期に学習崩壊が見られましたが、Hieralではそのような急激な性能劣化は確認されず、安定した推論精度を獲得していることが確認されました
 
 <div align="center">
-  <img src="assets/epoch_exp_result.png" alt="epoch experiment results" width="720" />
+  <img src="assets/epoch_exp_result.png" alt="epoch experiment results" />
   <p><em>図2: 学習エポック数に対する性能推移（左: Success Rate、右: Cross Wall Rate）。Hieralはベースライン(L1)の早期学習崩壊を抑制し、安定した性能向上を示す。</em></p>
 </div>
 
@@ -104,12 +104,12 @@ $$ L_{HJEPA} = \sum_{\ell=1}^{L} \left( L_{sim}^{(\ell)} + \alpha_\ell L_{var}^{
 | **Cross Wall Rate** | 壁通過成功率（中間目標の達成度） | **Hieralは高い値を維持** |
 
 <div align="center">
-  <img src="assets/replan_exp_result.png" alt="replan experiment results (absolute)" width="720" />
+  <img src="assets/replan_exp_result.png" alt="replan experiment results (absolute)" />
   <p><em>図3: 再計画間隔 (Replan Interval) に対する性能変化（絶対値）。Success Rateは両手法とも低下するが、Cross Wall RateはHieralで高い水準を維持する。</em></p>
 </div>
 
 <div align="center">
-  <img src="assets/replan_exp_result_relative.png" alt="replan experiment results (normalized)" width="720" />
+  <img src="assets/replan_exp_result_relative.png" alt="replan experiment results (normalized)" />
   <p><em>図4: 再計画間隔に対する性能変化（Replan=1を基準に正規化）。Hieralは再計画頻度を下げても大局的な意図（壁の通過）を保持する。</em></p>
 </div>
 
