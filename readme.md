@@ -43,11 +43,12 @@ H-JEPAは低位 (Level-1; L1) での高速な表現遷移と、高位 (Level-2; 
 
 $$\tilde{z}_t^{(1)} = z_t^{(1)} + \hat{z}_t^{(1)} + b_t, \quad b_t = W_{2 \to 1} \, z_{\tau(t)}^{(2)}$$
 
-![HJEPA architecture](assets/hjepa_architecture.jpg)
+<div align="center">
+  <img src="assets/hjepa_architecture.jpg" alt="HJEPA architecture" width="720" />
+  <p><em>図1: HJEPAの学習時アーキテクチャ。上段がL1（高頻度）、下段がL2（低頻度）。L2はk個のL1表現をconcatして集約し、L1の予測にフィードバックする。</em></p>
+</div>
 
 ### 損失関数
-
-<script type="text/javascript" async src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/3.2.2/es5/tex-mml-chtml.min.js"></script>
 
 各レベルで以下の損失を導入し、その重みつき和を最終的な目的関数とします。
 
@@ -88,7 +89,10 @@ $$ L_{HJEPA} = \sum_{\ell=1}^{L} \left( L_{sim}^{(\ell)} + \alpha_\ell L_{var}^{
 - **Hieral (階層化モデル)** は小規模データセットにおいて安定した学習と高いタスク達成性能を示しました
 - **L1 (ベースライン)** は早期に学習崩壊が見られましたが、Hieralではそのような急激な性能劣化は確認されず、安定した推論精度を獲得していることが確認されました
 
-![epoch experiment results](assets/epoch_exp_result.png)
+<div align="center">
+  <img src="assets/epoch_exp_result.png" alt="epoch experiment results" width="720" />
+  <p><em>図2: 学習エポック数に対する性能推移（左: Success Rate、右: Cross Wall Rate）。Hieralはベースライン(L1)の早期学習崩壊を抑制し、安定した性能向上を示す。</em></p>
+</div>
 
 ### 実験2: 長期予測の精度評価 (Replan Interval)
 
@@ -99,9 +103,15 @@ $$ L_{HJEPA} = \sum_{\ell=1}^{L} \left( L_{sim}^{(\ell)} + \alpha_\ell L_{var}^{
 | **Success Rate** | ゴール到達率 | 両手法とも再計画間隔の拡大に伴い低下 |
 | **Cross Wall Rate** | 壁通過成功率（中間目標の達成度） | **Hieralは高い値を維持** |
 
-![replan experiment results (absolute)](assets/replan_exp_result.png)
+<div align="center">
+  <img src="assets/replan_exp_result.png" alt="replan experiment results (absolute)" width="720" />
+  <p><em>図3: 再計画間隔 (Replan Interval) に対する性能変化（絶対値）。Success Rateは両手法とも低下するが、Cross Wall RateはHieralで高い水準を維持する。</em></p>
+</div>
 
-![replan experiment results (normalized)](assets/replan_exp_result_relative.png)
+<div align="center">
+  <img src="assets/replan_exp_result_relative.png" alt="replan experiment results (normalized)" width="720" />
+  <p><em>図4: 再計画間隔に対する性能変化（Replan=1を基準に正規化）。Hieralは再計画頻度を下げても大局的な意図（壁の通過）を保持する。</em></p>
+</div>
 
 **考察**: 最終的なゴール到達には微細な制御が必要であり、長期予測における位置ズレが直結するためSuccess Rateは両手法とも低下しました。しかし、「壁を通過する」という大局的な行動意図については、Hieralが長期にわたって正しく予測・保持できることが示されました。これは上位層 (L2) が抽象的な状態遷移を扱うことで長期的なコンテキストを保持し、下位層 (L1) の予測が大局的な整合性を失わないよう寄与した結果と解釈できます。
 
